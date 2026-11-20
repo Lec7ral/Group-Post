@@ -529,9 +529,31 @@
     "publicación enviada"
   ];
 
+  const APPROVAL_HINTS = [
+    "requires admin approval",
+    "require admin approval",
+    "must be approved by an admin",
+    "pending admin approval",
+    "requiere aprobación",
+    "requieren aprobación",
+    "aprobación de un administrador",
+    "aprobación del administrador",
+    "pendiente de aprobación",
+    "approbation d'un administrateur",
+    "soumises à l'approbation",
+    "موافقة المسؤول"
+  ];
+
   function detectPending() {
     const text = String(document.body ? document.body.innerText : "").slice(0, 200000).toLowerCase();
     return PENDING_PHRASES.some((phrase) => text.includes(phrase));
+  }
+
+  function detectApprovalRequirement(dialog) {
+    const scope = dialog || document.querySelector('div[role="dialog"]') || document.querySelector('[role="main"]');
+    if (!scope) return false;
+    const text = String(scope.innerText || "").slice(0, 40000).toLowerCase();
+    return APPROVAL_HINTS.some((phrase) => text.includes(phrase));
   }
 
   async function clickAndVerify(button) {
@@ -774,6 +796,7 @@
       };
     }
 
+    const preApproval = detectApprovalRequirement(findComposerDialog());
     const result = await clickAndVerify(ready.button);
     trace("clickAndVerify=" + JSON.stringify(result));
     if (!result.ok) return result;
@@ -783,6 +806,7 @@
     return {
       ok: true,
       pending: Boolean(result.pending),
+      requiresApproval: Boolean(result.pending || preApproval),
       image: images.length > 0,
       url: location.origin + location.pathname
     };
@@ -1054,22 +1078,8 @@
     }
   }
 
-  const STYLE = `
-    .gp-share-btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      margin: 0 2px; padding: 6px 9px; border: 0; border-radius: 8px;
-      background: transparent; color: inherit; font: inherit; font-size: 13px;
-      font-weight: 600; cursor: pointer; opacity: .85;
-    }
-    .gp-share-btn:hover { background: rgba(128,128,128,.16); opacity: 1; }
-  `;
-
   function ensureStyle() {
-    if (document.getElementById("gp-style")) return;
-    const style = document.createElement("style");
-    style.id = "gp-style";
-    style.textContent = STYLE;
-    (document.head || document.documentElement).appendChild(style);
+    /* .gp-share-btn styles now live in content/fb_ui.css */
   }
 
   async function readStore() {
@@ -1259,6 +1269,27 @@
 
   const escapeAttr = escapeHtml;
 
+  let shareScanTimer = null;
+  function scheduleShareScan(delay = 500) {
+    if (isWorker || !shareEnabled) return;
+    if (shareScanTimer) return;
+    shareScanTimer = setTimeout(() => {
+      shareScanTimer = null;
+      if (!document.getElementById("gp-share-overlay")) injectShareButtons();
+    }, delay);
+  }
+
+  function hasRelevantAddedNodes(mutations) {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        if (node.id === "gp-share-overlay" || node.classList?.contains("gp-share-btn")) continue;
+        return true;
+      }
+    }
+    return false;
+  }
+
   function bootShareUi() {
     if (isWorker) return;
     ensureStyle();
@@ -1272,12 +1303,12 @@
     } catch {
       /* ignore */
     }
-    setInterval(injectShareButtons, 2500);
+    setInterval(() => scheduleShareScan(0), 5000);
     setTimeout(injectShareButtons, 1200);
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver((mutations) => {
       if (document.getElementById("gp-share-overlay")) return;
-      if (Date.now() - lastScan < 400) return;
-      injectShareButtons();
+      if (!hasRelevantAddedNodes(mutations)) return;
+      scheduleShareScan(500);
     });
     observer.observe(document.body, { childList: true, subtree: true });
   }

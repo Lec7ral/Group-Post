@@ -5,6 +5,7 @@ import { escapeHtml, fmtDateTime, download, toast, confirmDialog } from "../ui.j
 const FILTERS = [
   ["all", "Todo"],
   ["posted", "Publicados"],
+  ["pending", "Pendientes"],
   ["failed", "Fallidos"],
   ["break", "Descansos"],
   ["info", "Info"]

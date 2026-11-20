@@ -1,6 +1,28 @@
 /* Styles for the in-feed "Grupos" button and its modal. Every class is
    prefixed with gp- so nothing leaks into Facebook's own layout. */
 
+.gp-share-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 2px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.gp-share-btn:hover {
+  background: rgba(128, 128, 128, 0.16);
+  opacity: 1;
+}
+
 #gp-share-overlay.gp-overlay {
   position: fixed;
   inset: 0;

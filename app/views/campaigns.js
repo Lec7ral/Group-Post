@@ -32,22 +32,35 @@ export async function mount(root) {
       return;
     }
     wrap.innerHTML =
-      '<table class="table"><thead><tr><th>Campaña</th><th>Grupos</th><th>Retardo</th><th>Actualizada</th><th style="width:1%"></th></tr></thead><tbody>' +
+      '<table class="table"><thead><tr><th>Campaña</th><th>Grupos</th><th>Retardo</th><th>Programación</th><th>Actualizada</th><th style="width:1%"></th></tr></thead><tbody>' +
       campaigns
         .map(
-          (campaign) =>
-            "<tr>" +
-            '<td><div class="strong">' + escapeHtml(campaign.name || "Sin título") + "</div>" +
-            '<div class="xs muted">' + escapeHtml((campaign.message || "").slice(0, 90)) + "</div></td>" +
-            "<td>" + (campaign.groupIds || []).length + "</td>" +
-            "<td>" + escapeHtml(delayLabel(campaign)) + "</td>" +
-            '<td class="muted xs">' + escapeHtml(fmtDateTime(campaign.updatedAt)) + "</td>" +
-            '<td><div class="row" style="flex-wrap:nowrap">' +
-            '<button class="btn btn--sm btn--primary" data-act="run" data-id="' + escapeHtml(campaign.id) + '">Lanzar</button>' +
-            '<a class="btn btn--sm" href="#/editor/' + escapeHtml(campaign.id) + '">Editar</a>' +
-            '<button class="btn btn--sm btn--ghost" data-act="duplicate" data-id="' + escapeHtml(campaign.id) + '">Duplicar</button>' +
-            '<button class="btn btn--sm btn--danger" data-act="delete" data-id="' + escapeHtml(campaign.id) + '">Borrar</button>' +
-            "</div></td></tr>"
+          (campaign) => {
+            const sched = Number(campaign.scheduledAt) || 0;
+            const schedCell = sched
+              ? '<span class="badge ' + (sched > Date.now() ? "badge--info" : "badge--pending") + '">' +
+                escapeHtml(fmtDateTime(sched)) +
+                "</span>"
+              : '<span class="muted xs">Manual</span>';
+            return (
+              "<tr>" +
+              '<td><div class="strong">' + escapeHtml(campaign.name || "Sin título") + "</div>" +
+              '<div class="xs muted">' + escapeHtml((campaign.message || "").slice(0, 90)) + "</div></td>" +
+              "<td>" + (campaign.groupIds || []).length + "</td>" +
+              "<td>" + escapeHtml(delayLabel(campaign)) + "</td>" +
+              "<td>" + schedCell + "</td>" +
+              '<td class="muted xs">' + escapeHtml(fmtDateTime(campaign.updatedAt)) + "</td>" +
+              '<td><div class="row" style="flex-wrap:nowrap">' +
+              '<button class="btn btn--sm btn--primary" data-act="run" data-id="' + escapeHtml(campaign.id) + '">Lanzar</button>' +
+              '<a class="btn btn--sm" href="#/editor/' + escapeHtml(campaign.id) + '">Editar</a>' +
+              (sched
+                ? '<button class="btn btn--sm btn--ghost" data-act="unschedule" data-id="' + escapeHtml(campaign.id) + '">Desprogramar</button>'
+                : "") +
+              '<button class="btn btn--sm btn--ghost" data-act="duplicate" data-id="' + escapeHtml(campaign.id) + '">Duplicar</button>' +
+              '<button class="btn btn--sm btn--danger" data-act="delete" data-id="' + escapeHtml(campaign.id) + '">Borrar</button>' +
+              "</div></td></tr>"
+            );
+          }
         )
         .join("") +
       "</tbody></table>";
@@ -71,11 +84,21 @@ export async function mount(root) {
       return;
     }
 
+    if (button.dataset.act === "unschedule") {
+      const next = state.campaigns.map((item) =>
+        item.id === campaign.id ? { ...item, scheduledAt: 0, updatedAt: Date.now() } : item
+      );
+      await saveCampaigns(next);
+      toast("Programación cancelada.", "ok");
+      return;
+    }
+
     if (button.dataset.act === "duplicate") {
       const copy = {
         ...campaign,
         id: uid("cmp"),
         name: (campaign.name || "Sin título") + " (copia)",
+        scheduledAt: 0,
         createdAt: Date.now(),
         updatedAt: Date.now()
       };

@@ -2,7 +2,15 @@
    used when a Facebook request needs real page cookies, and the small work
    window that drives the Facebook UI. */
 
-import { getRun, getSettings } from "./shared/store.js";
+import {
+  getRun,
+  getSettings,
+  readCampaigns,
+  saveCampaigns,
+  readGroups,
+  appendLog,
+  makeLogEntry
+} from "./shared/store.js";
 import { sleep } from "./shared/util.js";
 
 const APP_PATH = "app/index.html";
@@ -10,6 +18,7 @@ const OFFSCREEN_PATH = "offscreen.html";
 const BRIDGE_URL = "https://www.facebook.com/robots.txt";
 const GROUPS_URL = "https://www.facebook.com/groups/joins/?nav_source=tab";
 const WORKER_KEY = "gpWorker";
+const SCHED_PREFIX = "gp-sched:";
 
 let creatingOffscreen = null;
 let workerMemory = null;
@@ -682,21 +691,118 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
+async function syncScheduledAlarms() {
+  try {
+    const campaigns = await readCampaigns();
+    const wanted = new Map();
+    const nowTs = Date.now();
+    for (const campaign of campaigns) {
+      const when = Number(campaign && campaign.scheduledAt) || 0;
+      if (when > 0 && campaign.id) {
+        wanted.set(SCHED_PREFIX + campaign.id, Math.max(nowTs + 2000, when));
+      }
+    }
+    const alarms = await chrome.alarms.getAll();
+    for (const alarm of alarms) {
+      if (alarm.name.startsWith(SCHED_PREFIX) && !wanted.has(alarm.name)) {
+        await chrome.alarms.clear(alarm.name);
+      }
+    }
+    for (const [name, when] of wanted.entries()) {
+      await chrome.alarms.create(name, { when });
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+async function runScheduledCampaign(campaignId) {
+  const campaigns = await readCampaigns();
+  const target = campaigns.find((item) => item.id === campaignId);
+  if (!target || !Number(target.scheduledAt)) return;
+
+  /* Clear scheduledAt immediately so a restart cannot double-fire it. */
+  const cleared = campaigns.map((item) =>
+    item.id === campaignId ? { ...item, scheduledAt: 0 } : item
+  );
+  await saveCampaigns(cleared);
+
+  const run = await getRun();
+  if (["running", "paused", "stopping"].includes(run.status)) {
+    await appendLog(
+      makeLogEntry({
+        campaignId: target.id,
+        campaignName: target.name || "Campaña programada",
+        status: "info",
+        message: "La programación llegó a su hora pero ya hay otra campaña en curso. Lánzala manualmente cuando termine."
+      })
+    );
+    return;
+  }
+
+  const allGroups = await readGroups();
+  const byId = new Map(allGroups.map((g) => [g.id, g]));
+  const groups = (target.groupIds || []).map((id) => byId.get(id)).filter(Boolean);
+  if (!groups.length) {
+    await appendLog(
+      makeLogEntry({
+        campaignId: target.id,
+        campaignName: target.name || "Campaña programada",
+        status: "failed",
+        message: "No se pudo lanzar la campaña programada: ninguno de sus grupos está guardado."
+      })
+    );
+    return;
+  }
+
+  await appendLog(
+    makeLogEntry({
+      campaignId: target.id,
+      campaignName: target.name || "Campaña programada",
+      status: "info",
+      message: "Iniciando campaña programada (" + groups.length + " grupo(s))."
+    })
+  );
+  const res = await sendToEngine("run:start", { campaign: { ...target, scheduledAt: 0 }, groups });
+  if (!res || res.ok === false) {
+    await appendLog(
+      makeLogEntry({
+        campaignId: target.id,
+        campaignName: target.name || "Campaña programada",
+        status: "failed",
+        message: "Error al iniciar campaña programada: " + ((res && res.error) || "desconocido")
+      })
+    );
+  }
+}
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.run) paintBadge(changes.run.newValue || {});
+  if (area === "local" && changes.campaigns) syncScheduledAlarms();
 });
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create("gp-watchdog", { periodInMinutes: 1 });
   refreshBadge();
+  syncScheduledAlarms();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create("gp-watchdog", { periodInMinutes: 1 });
   refreshBadge();
+  syncScheduledAlarms();
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name.startsWith(SCHED_PREFIX)) {
+    const campaignId = alarm.name.slice(SCHED_PREFIX.length);
+    try {
+      await runScheduledCampaign(campaignId);
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
   if (alarm.name !== "gp-watchdog") return;
   try {
     const run = await getRun();
@@ -714,3 +820,4 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 chrome.alarms.create("gp-watchdog", { periodInMinutes: 1 });
 refreshBadge();
+syncScheduledAlarms();

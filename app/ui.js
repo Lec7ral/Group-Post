@@ -20,10 +20,10 @@ export function toast(message, kind = "info", timeout = 3600) {
   }, timeout);
 }
 
-function openDialog({ title, body, confirmLabel = "Aceptar", cancelLabel = "Cancelar", input = null }) {
+function openDialog({ title, body, confirmLabel = "Aceptar", cancelLabel = "Cancelar", input = null, wide = false }) {
   return new Promise((resolve) => {
     const dialog = document.createElement("dialog");
-    dialog.className = "gp-dialog";
+    dialog.className = "gp-dialog" + (wide ? " gp-dialog--wide" : "");
     dialog.innerHTML =
       '<form method="dialog" class="gp-dialog__form">' +
       '<h2 class="gp-dialog__title"></h2>' +
@@ -38,8 +38,9 @@ function openDialog({ title, body, confirmLabel = "Aceptar", cancelLabel = "Canc
     else if (body) bodyHost.appendChild(body);
     let field = null;
     if (input) {
-      field = document.createElement("input");
-      field.className = "input";
+      field = document.createElement(input.multiline ? "textarea" : "input");
+      field.className = input.multiline ? "textarea mono" : "input";
+      if (input.multiline) field.style.minHeight = "180px";
       field.value = input.value || "";
       field.placeholder = input.placeholder || "";
       bodyHost.appendChild(field);
@@ -58,15 +59,17 @@ function openDialog({ title, body, confirmLabel = "Aceptar", cancelLabel = "Canc
     });
     dialog.showModal();
     if (field) {
-      field.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          dialog.returnValue = "ok";
-          dialog.close();
-        }
-      });
+      if (!input.multiline) {
+        field.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            dialog.returnValue = "ok";
+            dialog.close();
+          }
+        });
+      }
       field.focus();
-      field.select();
+      if (!input.multiline) field.select();
     } else {
       okBtn.focus();
     }
@@ -85,6 +88,29 @@ export async function promptDialog(title, defaultValue = "", { placeholder = "" 
   const promise = openDialog({ title, body: "", confirmLabel: "Guardar", input: { value: defaultValue, placeholder } });
   const result = await promise;
   return result.ok ? result.value : null;
+}
+
+export async function textareaDialog(title, { hint = "", defaultValue = "", placeholder = "", confirmLabel = "Importar" } = {}) {
+  let body = "";
+  if (hint) {
+    body = document.createElement("p");
+    body.className = "hint";
+    body.style.margin = "0 0 8px";
+    body.textContent = hint;
+  }
+  const result = await openDialog({
+    title,
+    body,
+    confirmLabel,
+    wide: true,
+    input: { multiline: true, value: defaultValue, placeholder }
+  });
+  return result.ok ? result.value : null;
+}
+
+export async function contentDialog({ title, body, confirmLabel = "Cerrar", cancelLabel = "", wide = true }) {
+  const result = await openDialog({ title, body, confirmLabel, cancelLabel, wide });
+  return result.ok;
 }
 
 export const busy = (button, isBusy, label) => {

@@ -5,6 +5,7 @@ import {
   KEYS,
   getSettings,
   readGroups,
+  readGroupStats,
   readLists,
   readCampaigns,
   readLog,
@@ -14,6 +15,7 @@ import {
 export const state = {
   settings: {},
   groups: [],
+  groupStats: {},
   lists: [],
   campaigns: [],
   log: [],
@@ -39,15 +41,16 @@ const emit = (changes) => {
 };
 
 export async function loadAll() {
-  const [settings, groups, lists, campaigns, log, run] = await Promise.all([
+  const [settings, groups, groupStats, lists, campaigns, log, run] = await Promise.all([
     getSettings(),
     readGroups(),
+    readGroupStats(),
     readLists(),
     readCampaigns(),
     readLog(),
     getRun()
   ]);
-  Object.assign(state, { settings, groups, lists, campaigns, log, run, ready: true });
+  Object.assign(state, { settings, groups, groupStats, lists, campaigns, log, run, ready: true });
   emit({ all: true });
   return state;
 }
@@ -61,6 +64,10 @@ export function handleStorageChanges(changes) {
   if (changes[KEYS.groups]) {
     state.groups = changes[KEYS.groups].newValue || [];
     changed.groups = true;
+  }
+  if (changes[KEYS.groupStats]) {
+    state.groupStats = changes[KEYS.groupStats].newValue || {};
+    changed.groupStats = true;
   }
   if (changes[KEYS.lists]) {
     state.lists = changes[KEYS.lists].newValue || [];

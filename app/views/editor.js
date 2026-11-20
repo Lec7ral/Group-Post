@@ -1,5 +1,5 @@
 import { state, subscribe } from "../state.js";
-import { saveCampaigns } from "../../shared/store.js";
+import { saveCampaigns, buildGroupMetrics } from "../../shared/store.js";
 import { api } from "../api.js";
 import { launchCampaign } from "../launch.js";
 import { escapeHtml, fmtDuration, fmtDelay, toast, confirmDialog } from "../ui.js";
@@ -32,9 +32,27 @@ const blankDraft = (settings) => ({
   maxDelaySec: settings.maxDelaySec || 300,
   safetyEvery: settings.safetyEvery || 0,
   safetySec: settings.safetySec || 300,
+  scheduledAt: 0,
   createdAt: 0,
   updatedAt: 0
 });
+
+const toLocalDatetimeInput = (ts) => {
+  if (!ts || !Number.isFinite(Number(ts))) return "";
+  const d = new Date(Number(ts));
+  const pad = (n) => String(n).padStart(2, "0");
+  return (
+    d.getFullYear() +
+    "-" +
+    pad(d.getMonth() + 1) +
+    "-" +
+    pad(d.getDate()) +
+    "T" +
+    pad(d.getHours()) +
+    ":" +
+    pad(d.getMinutes())
+  );
+};
 
 const readNumber = (value, fallback) => {
   const n = Number(value);
@@ -92,6 +110,14 @@ export async function mount(root, param) {
     "</div>" +
     '<div class="hint">El primer post sale enseguida; la espera solo se aplica entre posts. Un descanso cada N = 0 lo desactiva. El límite diario se configura en Ajustes.</div>' +
     "</div></section>" +
+    // ---- schedule
+    '<section class="card"><div class="card__head"><div class="card__title">Programación (opcional)</div><span class="badge" id="edSchedBadge">Manual</span></div><div class="card__body col">' +
+    '<div class="row" style="align-items:flex-end">' +
+    '<div class="field" style="flex:1;min-width:220px"><label class="label" for="edSchedule">Fecha y hora de lanzamiento</label><input class="input" id="edSchedule" type="datetime-local"></div>' +
+    '<button class="btn btn--sm btn--ghost" type="button" id="edClearSchedule">Quitar programación</button>' +
+    "</div>" +
+    '<div class="hint">Usa las alarmas de Chrome en la extensión. El navegador debe estar abierto a la hora elegida; si está cerrado, se lanzará al abrirlo.</div>' +
+    "</div></section>" +
     // ---- test
     '<section class="card"><div class="card__head"><div class="card__title">Post de prueba</div></div><div class="card__body col">' +
     '<p class="hint" style="margin:0">Publica el mensaje (con una variante de spintax ya resuelta) en el primer grupo seleccionado, ahora mismo. Es una publicación real y pública.</p>' +
@@ -119,6 +145,7 @@ export async function mount(root, param) {
   const testResult = $("#edTestResult");
   const imageInput = $("#edImage");
   const imageFile = $("#edImageFile");
+  const scheduleInput = $("#edSchedule");
 
   nameInput.value = draft.name || "";
   messageInput.value = draft.message || "";
@@ -128,6 +155,23 @@ export async function mount(root, param) {
   maxInput.value = draft.maxDelaySec;
   safetyEvery.value = draft.safetyEvery;
   safetySec.value = draft.safetySec;
+  scheduleInput.value = draft.scheduledAt > 0 ? toLocalDatetimeInput(draft.scheduledAt) : "";
+
+  const updateScheduleBadge = () => {
+    const badge = $("#edSchedBadge");
+    if (!badge) return;
+    if (draft.scheduledAt > Date.now()) {
+      badge.textContent = "Programada";
+      badge.className = "badge badge--info";
+    } else if (draft.scheduledAt > 0) {
+      badge.textContent = "Fecha pasada";
+      badge.className = "badge badge--pending";
+    } else {
+      badge.textContent = "Manual";
+      badge.className = "badge";
+    }
+  };
+  updateScheduleBadge();
 
   const groupsById = new Map(state.groups.map((group) => [group.id, group]));
 
@@ -241,10 +285,13 @@ export async function mount(root, param) {
 
   const renderPicker = () => {
     const query = (searchInput.value || "").toLowerCase().trim();
+    const metrics = buildGroupMetrics(state.groupStats, state.log);
     const rows = state.groups
       .filter((group) => !query || group.name.toLowerCase().includes(query) || group.id.toLowerCase().includes(query))
       .map((group) => {
         const checked = selected.has(group.id) ? " checked" : "";
+        const m = metrics[group.id];
+        const needsApproval = Boolean(group.requiresApproval || (m && (m.requiresApproval || m.pending > 0)));
         const avatar = group.pic
           ? '<img class="avatar" src="' + escapeHtml(group.pic) + '" alt="" loading="lazy">'
           : '<span class="avatar">' + escapeHtml((group.name || "?").slice(0, 2).toUpperCase()) + "</span>";
@@ -255,6 +302,7 @@ export async function mount(root, param) {
           avatar +
           '<span><span class="strong">' + escapeHtml(group.name) + "</span>" +
           (group.members ? '<span class="xs muted"> · ' + escapeHtml(group.members) + "</span>" : "") +
+          (needsApproval ? ' <span class="badge badge--pending">Aprobación</span>' : "") +
           "</span></label></div>"
         );
       });
@@ -313,6 +361,16 @@ export async function mount(root, param) {
   });
   safetySec.addEventListener("input", () => {
     draft.safetySec = Math.max(0, readNumber(safetySec.value, 0));
+  });
+  scheduleInput.addEventListener("change", () => {
+    const val = scheduleInput.value;
+    draft.scheduledAt = val ? new Date(val).getTime() || 0 : 0;
+    updateScheduleBadge();
+  });
+  $("#edClearSchedule").addEventListener("click", () => {
+    scheduleInput.value = "";
+    draft.scheduledAt = 0;
+    updateScheduleBadge();
   });
 
   renderVariables();
@@ -404,6 +462,11 @@ export async function mount(root, param) {
     draft.maxDelaySec = clamp(Math.max(Number(draft.maxDelaySec) || draft.minDelaySec, draft.minDelaySec), draft.minDelaySec, 48 * 3600);
     draft.safetyEvery = Math.max(0, Number(draft.safetyEvery) || 0);
     draft.safetySec = Math.max(0, Number(draft.safetySec) || 0);
+    const rawSched = scheduleInput.value ? new Date(scheduleInput.value).getTime() : 0;
+    if (scheduleInput.value && (!Number.isFinite(rawSched) || rawSched <= Date.now())) {
+      throw new Error("La fecha programada debe ser en el futuro.");
+    }
+    draft.scheduledAt = Number.isFinite(rawSched) && rawSched > Date.now() ? rawSched : 0;
 
     if (!draft.message.trim() && !draft.variations.some((item) => String(item || "").trim())) {
       throw new Error("Escribe un mensaje antes de guardar.");
@@ -423,7 +486,15 @@ export async function mount(root, param) {
     if (location.hash !== "#/editor/" + draft.id) {
       history.replaceState(null, "", "#/editor/" + draft.id);
     }
-    if (!silent) toast("Campaña guardada.", "ok");
+    if (!silent) {
+      toast(
+        draft.scheduledAt
+          ? "Campaña guardada y programada."
+          : "Campaña guardada.",
+        "ok"
+      );
+    }
+    updateScheduleBadge();
     return draft;
   };
 

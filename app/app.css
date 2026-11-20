@@ -192,6 +192,7 @@ a { color: var(--accent); text-decoration: none; }
 
 .badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 99px; font-size: 10.5px; font-weight: 700; }
 .badge--posted { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.badge--pending { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
 .badge--failed { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
 .badge--info { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
 .badge--break { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
@@ -269,6 +270,7 @@ a { color: var(--accent); text-decoration: none; }
   width: min(440px, calc(100vw - 32px));
   box-shadow: var(--shadow);
 }
+.gp-dialog--wide { width: min(640px, calc(100vw - 32px)); }
 .gp-dialog::backdrop { background: rgba(0, 0, 0, .55); }
 .gp-dialog__form { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
 .gp-dialog__title { margin: 0; font-size: 15px; }

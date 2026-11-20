@@ -31,7 +31,8 @@ export async function publish({ group, message, settings = {}, options = {} }) {
   const mode = String(settings.transport || "auto");
 
   if (mode === "ajax" || mode === "graphql") {
-    if (options.image) {
+    const hasImages = Boolean(options.image) || (Array.isArray(options.images) && options.images.some(Boolean));
+    if (hasImages) {
       return { ok: false, kind: "config", error: "Las fotos requieren el transporte «Navegador real» o «Automático».", via: mode };
     }
     return publishToGroup({ group, message, settings });
@@ -57,6 +58,7 @@ export async function publish({ group, message, settings = {}, options = {} }) {
           ok: true,
           via: "ui",
           pending: Boolean(result.pending),
+          requiresApproval: Boolean(result.requiresApproval || result.pending),
           imageAttached: Boolean(result.image),
           debug: result.debug || [],
           postUrl: result.url || group.url || ""

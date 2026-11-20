@@ -1,4 +1,5 @@
 import { state, groupById } from "./state.js";
+import { saveCampaigns } from "../shared/store.js";
 import { api } from "./api.js";
 import { confirmDialog, toast, fmtDelay } from "./ui.js";
 
@@ -27,6 +28,12 @@ export async function launchCampaign(campaign) {
   const response = await api("run:start", { campaign, groups });
   if (!response || response.ok === false) {
     throw new Error((response && response.error) || "La campaña no pudo arrancar.");
+  }
+  if (Number(campaign.scheduledAt) > 0 && campaign.id) {
+    const next = (state.campaigns || []).map((item) =>
+      item.id === campaign.id ? { ...item, scheduledAt: 0 } : item
+    );
+    await saveCampaigns(next);
   }
   toast("Campaña iniciada. Puedes dejar esta pestaña en segundo plano.", "ok");
   return response.run;

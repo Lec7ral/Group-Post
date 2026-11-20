@@ -1,0 +1,16 @@
+{
+  "name": "group-poster",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Publica un mensaje en muchos grupos de Facebook con retardos seguros. Sin licencia, sin límites.",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "node -e \"console.log('Group Poster ready')\"",
+    "lint": "node --check server.js && node --check background.js && node --check app/main.js && node --check app/api.js && node --check app/state.js && node --check app/ui.js && node --check app/launch.js && node --check shared/store.js && node --check shared/engine.js && node --check shared/publish.js && node --check shared/ai.js && node --check app/views/groups.js && node --check app/views/editor.js && node --check app/views/campaigns.js && node --check app/views/dashboard.js && node --check app/views/activity.js && node --check app/views/settings.js && node --check content/fb_ui.js"
+  },
+  "dependencies": {
+    "express": "^5.3.0"
+  }
+}

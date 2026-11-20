@@ -17,9 +17,10 @@ function stats() {
   const log = state.log || [];
   const today = todayKey();
   const week = Date.now() - 7 * DAY;
-  const postedToday = log.filter((entry) => entry.status === "posted" && entry.day === today).length;
+  const isOk = (entry) => entry.status === "posted" || entry.status === "pending";
+  const postedToday = log.filter((entry) => isOk(entry) && entry.day === today).length;
   const failedToday = log.filter((entry) => entry.status === "failed" && entry.day === today).length;
-  const weekPosted = log.filter((entry) => entry.status === "posted" && entry.ts >= week).length;
+  const weekPosted = log.filter((entry) => isOk(entry) && entry.ts >= week).length;
   const weekFailed = log.filter((entry) => entry.status === "failed" && entry.ts >= week).length;
   const rate = weekPosted + weekFailed ? Math.round((weekPosted / (weekPosted + weekFailed)) * 100) : 0;
   return {
@@ -28,7 +29,7 @@ function stats() {
     rate,
     weekPosted,
     groups: state.groups.length,
-    totalPosted: log.filter((entry) => entry.status === "posted").length
+    totalPosted: log.filter(isOk).length
   };
 }
 

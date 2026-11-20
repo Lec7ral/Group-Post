@@ -13,6 +13,7 @@ import {
   appendLog,
   makeLogEntry,
   countPostedToday,
+  recordGroupOutcome,
   EMPTY_RUN
 } from "./store.js";
 import { FbError, clearSessionCache, resolveNumericId } from "./fb.js";
@@ -321,32 +322,49 @@ async function loop(runId) {
 
     const runAfter = await readControl(runId);
     if (runAfter.status === "stopping") {
+      const stopStatus = result.ok ? (result.pending ? "pending" : "posted") : "failed";
       await logAndSave({
         campaignId: run.campaignId,
         campaignName: run.campaignName,
         groupId: group.id,
         groupName: group.name,
-        status: result.ok ? "posted" : "failed",
+        status: stopStatus,
         postUrl: result.postUrl || "",
-        message: result.ok ? "Publicado antes de la orden de parada." : result.error || "Falló"
+        message: result.ok
+          ? (result.pending ? "Enviado (pendiente de aprobación) antes de detener." : "Publicado antes de la orden de parada.")
+          : result.error || "Falló"
+      });
+      await recordGroupOutcome({
+        groupId: group.id,
+        status: stopStatus,
+        postUrl: result.postUrl || "",
+        error: result.ok ? "" : result.error || "Falló",
+        requiresApproval: Boolean(result.requiresApproval || result.pending)
       });
       await finalize(runId, "done", "Detenido por ti.");
       return;
     }
 
     if (result.ok) {
+      const logStatus = result.pending ? "pending" : "posted";
       await logAndSave({
         campaignId: run.campaignId,
         campaignName: run.campaignName,
         groupId: group.id,
         groupName: group.name,
-        status: "posted",
+        status: logStatus,
         postUrl: result.postUrl || "",
         message:
           (result.pending ? "Enviado (pendiente de aprobación del admin)" : "Publicado") +
           (result.imageAttached ? " · con foto" : "") +
           (result.via ? " vía " + result.via : ""),
         raw: Array.isArray(result.debug) ? result.debug.join("\n") : ""
+      });
+      await recordGroupOutcome({
+        groupId: group.id,
+        status: logStatus,
+        postUrl: result.postUrl || "",
+        requiresApproval: Boolean(result.requiresApproval || result.pending)
       });
       await patchRun(runId, {
         okCount: runAfter.okCount + 1,
@@ -362,6 +380,11 @@ async function loop(runId) {
         status: "failed",
         message: result.error || "Falló",
         raw: (result.raw || "") + (Array.isArray(result.debug) ? "\n" + result.debug.join("\n") : "")
+      });
+      await recordGroupOutcome({
+        groupId: group.id,
+        status: "failed",
+        error: result.error || "Falló"
       });
       const fails = runAfter.consecutiveFails + 1;
       await patchRun(runId, {

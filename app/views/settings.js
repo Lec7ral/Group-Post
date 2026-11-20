@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import {
   saveSettings,
   saveGroups,
+  saveGroupStats,
   saveLists,
   saveCampaigns,
   readDiagnostics,
@@ -52,7 +53,7 @@ const sanitizeSettings = (raw) => ({
   aiWorkerUrl: String(raw.aiWorkerUrl || "https://fb-smart-poster.0amaal89.workers.dev").trim(),
   aiTone: ["engaging", "enthusiastic", "professional", "casual"].includes(raw.aiTone) ? raw.aiTone : "engaging",
   aiStyle: ["moderate", "subtle", "creative"].includes(raw.aiStyle) ? raw.aiStyle : "moderate",
-  aiLanguage: ["darija", "arabic", "french", "english", "auto"].includes(raw.aiLanguage) ? raw.aiLanguage : "darija",
+  aiLanguage: ["darija", "arabic", "french", "english", "auto"].includes(raw.aiLanguage) ? raw.aiLanguage : "auto",
   aiBaseUrl: String(raw.aiBaseUrl || "").slice(0, 300),
   aiApiKey: String(raw.aiApiKey || "").slice(0, 300),
   aiModel: String(raw.aiModel || "gpt-4o-mini").slice(0, 120),
@@ -133,11 +134,11 @@ export async function mount(root) {
     '<div class="field"><label class="label" for="setAiWorker">Worker (endpoint del repositorio)</label><input class="input" id="setAiWorker" placeholder="https://fb-smart-poster.0amaal89.workers.dev" autocomplete="off"></div>' +
     '<div class="grid grid--2">' +
     '<div class="field"><label class="label" for="setAiLanguage">Idioma de salida</label><select class="select" id="setAiLanguage">' +
-    '<option value="darija">Darija (árabe marroquí)</option>' +
-    '<option value="arabic">Árabe (árabe estándar)</option>' +
-    '<option value="french">Francés</option>' +
-    '<option value="english">Inglés</option>' +
     '<option value="auto">Auto (conservar el idioma del texto)</option>' +
+    '<option value="english">Inglés</option>' +
+    '<option value="french">Francés</option>' +
+    '<option value="arabic">Árabe (árabe estándar)</option>' +
+    '<option value="darija">Darija (árabe marroquí)</option>' +
     "</select></div>" +
     '<div class="field"><label class="label" for="setAiTone">Tono</label><select class="select" id="setAiTone">' +
     '<option value="engaging">Engaging & conversacional</option>' +
@@ -151,6 +152,7 @@ export async function mount(root) {
     '<option value="creative">Reescritura creativa</option>' +
     "</select></div>" +
     "</div>" +
+    "</div>" +
     '<div id="aiFieldsCustom" class="col" style="display:none">' +
     '<div class="grid grid--2">' +
     '<div class="field"><label class="label" for="setAiBase">Endpoint base</label><input class="input" id="setAiBase" placeholder="https://api.openai.com/v1" autocomplete="off"></div>' +
@@ -158,8 +160,10 @@ export async function mount(root) {
     "</div>" +
     '<div class="field"><label class="label" for="setAiKey">API key</label><input class="input" id="setAiKey" type="password" placeholder="sk-..." autocomplete="off"></div>' +
     "</div>" +
+    '<div id="aiActionsRow" class="col">' +
     '<div class="row"><button class="btn btn--sm" id="setAiTest" type="button">Probar conexión</button><span class="hint" id="setAiStatus"></span></div>' +
     '<p class="hint" style="margin:0">Si el proveedor falla, el motor sigue con el texto original y el spintax local. Nunca bloquea una campaña.</p>' +
+    "</div>" +
     "</div></details>" +
 
     /* ---------- graphql ---------- */
@@ -229,7 +233,7 @@ export async function mount(root) {
     $("#setAiEnabled").checked = settings.aiEnabled === true;
     $("#setAiProvider").value = String(settings.aiProvider || "worker");
     $("#setAiWorker").value = settings.aiWorkerUrl || "";
-    $("#setAiLanguage").value = String(settings.aiLanguage || "darija");
+    $("#setAiLanguage").value = String(settings.aiLanguage || "auto");
     $("#setAiTone").value = String(settings.aiTone || "engaging");
     $("#setAiStyle").value = String(settings.aiStyle || "moderate");
     $("#setAiBase").value = settings.aiBaseUrl || "";
@@ -260,20 +264,13 @@ export async function mount(root) {
     const provider = $("#setAiProvider").value || "worker";
     const isWorker = provider === "worker";
     const isCustom = provider === "custom";
-    const isOff = provider === "off";
     const setDisplay = (id, display) => {
       const el = root.querySelector("#" + id);
       if (el) el.style.display = display;
     };
     setDisplay("aiFieldsWorker", isWorker ? "" : "none");
     setDisplay("aiFieldsCustom", isCustom ? "" : "none");
-    setDisplay("setAiWorker", isWorker ? "" : "none");
-    setDisplay("setAiTone", isWorker ? "" : "none");
-    setDisplay("setAiStyle", isWorker ? "" : "none");
-    setDisplay("setAiLanguage", isWorker ? "" : "none");
-    setDisplay("setAiBase", isCustom ? "" : "none");
-    setDisplay("setAiKey", isCustom ? "" : "none");
-    setDisplay("setAiModel", isCustom ? "" : "none");
+    setDisplay("aiActionsRow", isWorker || isCustom ? "" : "none");
   };
 
   const collect = () =>
@@ -316,6 +313,9 @@ export async function mount(root) {
   const ensureOriginPermission = async (url) => {
     const origin = originOf(url);
     if (!origin) return false;
+    if (typeof chrome === "undefined" || !chrome.permissions || typeof chrome.permissions.request !== "function") {
+      return true;
+    }
     try {
       /* Called straight from a user gesture: request() resolves true when the
          origin is already granted, so no prompt appears twice. */
@@ -446,6 +446,10 @@ export async function mount(root) {
   });
 
   $("#setShowWindow").addEventListener("click", async () => {
+    if (typeof chrome === "undefined" || !chrome.runtime || typeof chrome.runtime.sendMessage !== "function") {
+      toast("Esta acción requiere ejecutar Group Poster como extensión en Chrome.", "error");
+      return;
+    }
     try {
       const response = await chrome.runtime.sendMessage({ type: "gp:uiFocus" });
       if (!response || response.ok === false) {
@@ -582,6 +586,7 @@ export async function mount(root) {
       exportedAt: new Date().toISOString(),
       settings: state.settings,
       groups: state.groups,
+      groupStats: state.groupStats,
       lists: state.lists,
       campaigns: state.campaigns
     };
@@ -608,6 +613,7 @@ export async function mount(root) {
       );
       if (!ok) return;
       if (Array.isArray(data.groups)) await saveGroups(data.groups);
+      if (data.groupStats && typeof data.groupStats === "object") await saveGroupStats(data.groupStats);
       if (Array.isArray(data.lists)) await saveLists(data.lists);
       if (Array.isArray(data.campaigns)) await saveCampaigns(data.campaigns);
       if (data.settings) await saveSettings(sanitizeSettings(data.settings));
@@ -648,7 +654,7 @@ export async function mount(root) {
       { title: "Restablecer todo", confirmLabel: "Borrar todo" }
     );
     if (!ok) return;
-    await remove([KEYS.campaigns, KEYS.groups, KEYS.lists, KEYS.log, KEYS.run, KEYS.diagnostics, KEYS.settings]);
+    await remove([KEYS.campaigns, KEYS.groups, KEYS.groupStats, KEYS.lists, KEYS.log, KEYS.run, KEYS.diagnostics, KEYS.settings]);
     toast("Todos los datos borrados.", "ok");
     loadFields();
   });

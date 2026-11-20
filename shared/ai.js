@@ -72,7 +72,7 @@ export async function rewriteWithAi({ text, settings }) {
       text: source,
       tone: String(settings.aiTone || "engaging"),
       style: String(settings.aiStyle || "moderate"),
-      language: String(settings.aiLanguage || "darija")
+      language: String(settings.aiLanguage || "auto")
     };
     let res;
     try {
