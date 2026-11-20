@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Group Poster</title>
+  <link rel="icon" href="../assets/icon48.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        <img class="brand__mark" src="../assets/icon48.png" alt="Group Poster">
+        <div>
+          <div class="brand__name">Group Poster</div>
+          <div class="brand__sub">Publicación masiva ilimitada</div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <a class="nav__item" href="#/dashboard" data-nav="dashboard"><span class="nav__dot"></span>Panel</a>
+        <a class="nav__item" href="#/campaigns" data-nav="campaigns"><span class="nav__dot"></span>Campañas</a>
+        <a class="nav__item" href="#/groups" data-nav="groups"><span class="nav__dot"></span>Grupos</a>
+        <a class="nav__item" href="#/activity" data-nav="activity"><span class="nav__dot"></span>Actividad</a>
+        <a class="nav__item" href="#/settings" data-nav="settings"><span class="nav__dot"></span>Ajustes</a>
+      </nav>
+
+      <div class="side__foot">
+        <div class="mini" id="sideRun">Sin campaña activa</div>
+        <div class="mini mini--dim">v0.2.0 · sin licencia, sin límites</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="top">
+        <div class="top__titles">
+          <h1 id="pageTitle">Panel</h1>
+          <span id="pageSub" class="muted">Lanza, vigila y revisa tus publicaciones en grupos.</span>
+        </div>
+
+        <div class="runbar" id="runbar">
+          <span class="runbar__state" id="runState"><span class="dot"></span><span id="runStateText">Inactivo</span></span>
+          <div class="runbar__progress"><div class="progress__fill" id="runFill" style="width:0%"></div></div>
+          <span class="runbar__meta" id="runMeta">—</span>
+          <div class="runbar__actions">
+            <button class="btn btn--sm" id="btnPause" type="button" hidden>Pausar</button>
+            <button class="btn btn--sm" id="btnResume" type="button" hidden>Reanudar</button>
+            <button class="btn btn--sm btn--danger" id="btnStop" type="button" hidden>Detener</button>
+          </div>
+        </div>
+      </header>
+
+      <div id="view" class="view"></div>
+    </main>
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>

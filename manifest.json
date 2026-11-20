@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Group Poster",
+  "version": "0.2.0",
+  "description": "Publica un mensaje en muchos grupos de Facebook con retardos seguros. Sin licencia, sin límites.",
+  "minimum_chrome_version": "116",
+
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "offscreen",
+    "alarms"
+  ],
+
+  "host_permissions": [
+    "*://*.facebook.com/*"
+  ],
+
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "action": {
+    "default_title": "Group Poster",
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["*://*.facebook.com/*"],
+      "js": ["content/fb_ui.js"],
+      "css": ["content/fb_ui.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}
