@@ -50,14 +50,15 @@ function setActiveNav(name) {
 function runProgress(run) {
   const total = Array.isArray(run.queue) ? run.queue.length : 0;
   if (!total) return 0;
-  return Math.min(100, Math.round(((run.okCount + run.failCount) / total) * 100));
+  const done = (run.okCount || 0) + (run.failCount || 0) + (run.skipCount || 0);
+  return Math.min(100, Math.round((done / total) * 100));
 }
 
 function updateRunbar() {
   const run = state.run || {};
   const status = run.status || "idle";
   const total = Array.isArray(run.queue) ? run.queue.length : 0;
-  const done = (run.okCount || 0) + (run.failCount || 0);
+  const done = (run.okCount || 0) + (run.failCount || 0) + (run.skipCount || 0);
 
   const stateEl = document.getElementById("runState");
   const stateText = document.getElementById("runStateText");

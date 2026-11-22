@@ -52,6 +52,7 @@ export async function mount(root) {
     '<option value="all">Todos</option>' +
     '<option value="active">Con historial</option>' +
     '<option value="approval">Requiere aprobación</option>' +
+    '<option value="skipped">Omitidos</option>' +
     '<option value="failed">Con fallos</option>' +
     "</select>" +
     '<input class="input input--sm" id="grSearch" placeholder="Buscar grupos…" style="width:220px" autocomplete="off"></div></div>' +
@@ -80,9 +81,10 @@ export async function mount(root) {
       }
       const m = metrics[group.id];
       const needsApproval = Boolean(group.requiresApproval || (m && (m.requiresApproval || m.pending > 0)));
-      const total = m ? (m.posted || 0) + (m.pending || 0) + (m.failed || 0) : 0;
+      const total = m ? (m.posted || 0) + (m.pending || 0) + (m.failed || 0) + (m.skipped || 0) : 0;
       if (filterMode === "active") return total > 0;
       if (filterMode === "approval") return needsApproval;
+      if (filterMode === "skipped") return Boolean(m && m.skipped > 0);
       if (filterMode === "failed") return Boolean(m && m.failed > 0);
       return true;
     });
@@ -100,10 +102,11 @@ export async function mount(root) {
       groups
         .map((group) => {
           const checked = selected.has(group.id) ? " checked" : "";
-          const m = metrics[group.id] || { posted: 0, pending: 0, failed: 0, lastPostAt: 0, requiresApproval: false };
+          const m = metrics[group.id] || { posted: 0, pending: 0, failed: 0, skipped: 0, lastPostAt: 0, requiresApproval: false };
           const okTotal = (m.posted || 0) + (m.pending || 0);
-          const total = okTotal + (m.failed || 0);
-          const rate = total ? Math.round((okTotal / total) * 100) : 0;
+          const rateTotal = okTotal + (m.failed || 0);
+          const total = rateTotal + (m.skipped || 0);
+          const rate = rateTotal ? Math.round((okTotal / rateTotal) * 100) : 0;
           const needsApproval = Boolean(group.requiresApproval || m.requiresApproval || m.pending > 0);
           const avatar = group.pic
             ? '<img class="avatar" src="' + escapeHtml(group.pic) + '" alt="" loading="lazy">'
@@ -112,8 +115,9 @@ export async function mount(root) {
             ? '<div class="row" style="gap:6px">' +
               '<span class="badge badge--posted">' + m.posted + " ok</span>" +
               (m.pending ? '<span class="badge badge--pending">' + m.pending + " pend.</span>" : "") +
+              (m.skipped ? '<span class="badge badge--skipped">' + m.skipped + " omit.</span>" : "") +
               (m.failed ? '<span class="badge badge--failed">' + m.failed + " fallos</span>" : "") +
-              '<span class="xs muted">' + rate + "%</span>" +
+              (rateTotal ? '<span class="xs muted">' + rate + "%</span>" : "") +
               "</div>"
             : '<span class="xs muted">Sin envíos</span>';
           const lastActivity = m.lastPostAt || group.lastVisited || 0;
@@ -160,7 +164,7 @@ export async function mount(root) {
   };
 
   const openGroupHistory = async (group) => {
-    const metrics = metricsMap()[group.id] || { posted: 0, pending: 0, failed: 0, lastPostAt: 0, requiresApproval: false };
+    const metrics = metricsMap()[group.id] || { posted: 0, pending: 0, failed: 0, skipped: 0, lastPostAt: 0, requiresApproval: false };
     const entries = (state.log || [])
       .filter((item) => item.groupId === group.id)
       .slice()
@@ -173,6 +177,7 @@ export async function mount(root) {
       '<div class="row" style="gap:8px">' +
       '<span class="badge badge--posted">' + (metrics.posted || 0) + " publicados</span>" +
       '<span class="badge badge--pending">' + (metrics.pending || 0) + " pendientes</span>" +
+      '<span class="badge badge--skipped">' + (metrics.skipped || 0) + " omitidos</span>" +
       '<span class="badge badge--failed">' + (metrics.failed || 0) + " fallidos</span>" +
       (group.requiresApproval || metrics.requiresApproval
         ? '<span class="badge badge--pending">Requiere aprobación de admin</span>'

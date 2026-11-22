@@ -62,6 +62,16 @@
     "security check",
     "confirm your identity",
     "we suspended your account",
+    "bloqueado temporalmente",
+    "bloqueada temporalmente",
+    "limitamos la frecuencia",
+    "tu cuenta está restringida",
+    "tu cuenta ha sido restringida",
+    "control de seguridad",
+    "confirma tu identidad",
+    "infringe nuestras normas",
+    "normas comunitarias",
+    "suspendimos tu cuenta",
     "تم حظرك مؤقتًا",
     "نحن نضع قيود",
     "تم تقييد حسابك",
@@ -100,17 +110,44 @@
 
   /* ---------------- text input ---------------- */
 
+  function placeCaretInEditor(editor) {
+    try {
+      const sel = window.getSelection();
+      if (!sel) return;
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } catch {
+      /* ignore */
+    }
+  }
+
   function setEditorText(editor, text) {
     const readValue = (node) => {
       if (!node || node === document.body) return "";
       return String(node.textContent || node.innerText || "");
     };
-    const needle = String(text).slice(0, 10);
-    const hasText = () => readValue(editor).includes(needle) || readValue(document.activeElement).includes(needle);
+    const needle = String(text).trim().slice(0, 16);
+    const hasText = () =>
+      Boolean(needle) &&
+      (readValue(editor).includes(needle) || readValue(document.activeElement).includes(needle));
 
     editor.focus();
-    editor.click();
-    /* The reference extension pastes plain text + HTML into the Lexical editor. */
+    placeCaretInEditor(editor);
+    /* Avoid synthetic click() when the tab is hidden if focus+selection already holds,
+       and fall back gracefully across paste -> beforeinput -> execCommand. */
+    if (!document.hidden) {
+      try {
+        editor.click();
+      } catch {
+        /* ignore */
+      }
+      placeCaretInEditor(editor);
+    }
+
+    /* 1) Clipboard paste into Lexical editor (works in background tabs with Selection set). */
     try {
       const transfer = new DataTransfer();
       transfer.setData("text/plain", String(text));
@@ -119,13 +156,35 @@
     } catch {
       /* ignore */
     }
+
+    /* 2) Lexical beforeinput fallback (does not depend on OS focus). */
     if (!hasText()) {
       try {
+        placeCaretInEditor(editor);
+        editor.dispatchEvent(
+          new InputEvent("beforeinput", {
+            bubbles: true,
+            cancelable: true,
+            inputType: "insertText",
+            data: String(text)
+          })
+        );
+      } catch {
+        /* ignore */
+      }
+    }
+
+    /* 3) execCommand fallback (mostly active tabs). */
+    if (!hasText()) {
+      try {
+        placeCaretInEditor(editor);
         document.execCommand("insertText", false, String(text));
       } catch {
         /* ignore */
       }
     }
+
+    /* 4) Last-resort DOM text assignment. */
     if (!hasText()) {
       try {
         editor.textContent = String(text);
@@ -133,6 +192,7 @@
         /* ignore */
       }
     }
+
     for (const node of [editor, document.activeElement]) {
       try {
         if (!node || node === document.body) continue;
@@ -154,8 +214,10 @@
     "create a post",
     "write a post",
     "what's on your mind",
+    "start discussion",
     "crear publicación",
     "escribe algo",
+    "iniciar conversación",
     "créer une publication",
     "exprimez-vous",
     "اكتب شيئاً",
@@ -178,16 +240,74 @@
     '[aria-label*="انشئ منشوراً"]'
   ];
 
+  const COMMENT_WORDS = ["comment", "comentar", "comentario", "commenter", "composer un comment", "تعليق", "コメント"];
+
+  const SELL_WORDS = [
+    "sell something",
+    "sell an item",
+    "item for sale",
+    "vehicle for sale",
+    "home for sale",
+    "vender algo",
+    "vender un artículo",
+    "vender artículo",
+    "artículo en venta",
+    "vehículo en venta",
+    "vivienda en venta",
+    "crear publicación de venta",
+    "publicación de venta",
+    "vendre quelque chose",
+    "vendre un article",
+    "article à vendre",
+    "vender alguma coisa",
+    "item à venda",
+    "بيع شيء",
+    "عرض للبيع",
+    "عنصر للبيع"
+  ];
+
+  const SECONDARY_COMPOSER_WORDS = [
+    "live video",
+    "video en vivo",
+    "vídeo en directo",
+    "vidéo en direct",
+    "photo/video",
+    "foto/video",
+    "foto/vídeo",
+    "photo/vidéo",
+    "feeling/activity",
+    "sentimiento/actividad",
+    "poll",
+    "encuesta",
+    "sondage",
+    "anonymous post",
+    "publicación anónima",
+    "publication anonyme",
+    "tag people",
+    "etiquetar personas"
+  ];
+
+  const isSellLabel = (label) => {
+    const lower = String(label || "").toLowerCase().trim();
+    if (!lower) return false;
+    return SELL_WORDS.some((word) => lower.includes(word)) || /^(sell|vender|vendre)\b/.test(lower);
+  };
+
+  const isExcludedTriggerLabel = (label) => {
+    const lower = String(label || "").toLowerCase().trim();
+    if (!lower) return false;
+    if (COMMENT_WORDS.some((word) => lower.includes(word))) return true;
+    if (isSellLabel(lower)) return true;
+    return SECONDARY_COMPOSER_WORDS.some((word) => lower === word || lower.startsWith(word));
+  };
+
   function findComposerTrigger() {
-    const COMMENT_WORDS = ["comment", "comentar", "comentario", "commenter", "composer un comment", "تعليق", "コメント"];
     for (const selector of COMPOSER_SELECTORS) {
       const nodes = Array.from(document.querySelectorAll(selector));
-      const node = nodes.find((candidate) =>
-        isVisible(candidate) && !COMMENT_WORDS.some((word) => labelOf(candidate).toLowerCase().includes(word))
-      );
+      const node = nodes.find((candidate) => isVisible(candidate) && !isExcludedTriggerLabel(labelOf(candidate)));
       if (node) {
         const button = node.closest('[role="button"]') || node;
-        if (isVisible(button)) return button;
+        if (isVisible(button) && !isExcludedTriggerLabel(labelOf(button))) return button;
       }
     }
     const candidates = document.querySelectorAll('div[role="button"], span[role="button"]');
@@ -195,34 +315,58 @@
       const label = labelOf(node);
       if (!label) continue;
       const lower = label.toLowerCase();
-      if (COMMENT_WORDS.some((word) => lower.includes(word))) continue;
+      if (isExcludedTriggerLabel(lower)) continue;
       if (COMPOSER_HINTS.some((hint) => lower.includes(hint))) {
         const button = node.closest('[role="button"]') || node;
-        if (isVisible(button)) return button;
+        if (isVisible(button) && !isExcludedTriggerLabel(labelOf(button))) return button;
       }
     }
     return null;
   }
 
-  function isPostComposer(dialog) {
+  function isBuySellDialog(dialog) {
     if (!dialog) return false;
+    const headings = Array.from(dialog.querySelectorAll('h1, h2, h3, [role="heading"]'))
+      .map((el) => labelOf(el))
+      .join(" ");
+    if (
+      /sell something|item for sale|vehicle for sale|home for sale|vender algo|art[ií]culo en venta|publicaci[oó]n de venta|what are you selling|qu[eé] vendes|qu[eé] est[aá]s vendiendo|vendre quelque chose|vendre un article|بيع شيء/.test(
+        headings
+      )
+    ) {
+      return true;
+    }
+    const inputs = Array.from(dialog.querySelectorAll('input:not([type="file"]):not([type="hidden"]), select'));
+    return inputs.some((el) => {
+      if (!isVisible(el)) return false;
+      const hint = String(el.getAttribute("aria-label") || el.getAttribute("placeholder") || "").toLowerCase();
+      return /^(price|precio|prix|السعر|what are you selling|qu[eé] vendes|qu[eé] est[aá]s vendiendo)/.test(hint);
+    });
+  }
+
+  function closeOpenDialog(dialog) {
+    if (!dialog) return;
+    const closeBtn =
+      pickVisible('[aria-label="Close"]', dialog) ||
+      pickVisible('[aria-label="Cerrar"]', dialog) ||
+      pickVisible('[aria-label="Fermer"]', dialog) ||
+      pickVisible('[aria-label="إغلاق"]', dialog);
+    if (closeBtn) {
+      try {
+        closeBtn.click();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  function isPostComposer(dialog) {
+    if (!dialog || isBuySellDialog(dialog)) return false;
     const text = String(dialog.innerText || "").toLowerCase();
     if (/write a comment|escribe un comentario|escribir un comentario|écrire un commentaire|اكتب تعليق|reply to/.test(text)) {
       return false;
     }
     return /post|publicar|public|create|write|crear|escribe|écrire|créer|نشر|منشور|اكتب|分享/.test(text);
-  }
-
-  /* Facebook can leave several dialogs mounted at once (share, composer,
-     tooltips). Pick the one that actually contains the post editor. */
-  function findComposerDialog() {
-    const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-    const withEditor = dialogs.filter(
-      (dialog) => isVisible(dialog) && dialog.querySelector('div[contenteditable="true"]')
-    );
-    const postDialogs = withEditor.filter(isPostComposer);
-    const pool = postDialogs.length ? postDialogs : withEditor;
-    return pool.length ? pool[pool.length - 1] : null;
   }
 
   /* Strict selectors ported from the reference extension. */
@@ -242,7 +386,7 @@
 
   function findComposerDialogStrict() {
     const dialogs = Array.from(document.querySelectorAll('[role="dialog"]')).filter(
-      (dialog) => isComposerElementVisible(dialog) && findEditorStrict(dialog)
+      (dialog) => isComposerElementVisible(dialog) && findEditorStrict(dialog) && !isBuySellDialog(dialog)
     );
     return dialogs.length === 1 ? dialogs[0] : null;
   }
@@ -272,15 +416,21 @@
     if (!button || !button.textContent?.trim() || !button.querySelector("span") ||
         button.querySelector("svg, img, i, input") ||
         !button.querySelector('[role="none"][data-visualcompletion="ignore"]')) return null;
-    if (button.getBoundingClientRect().width < form.getBoundingClientRect().width * 0.8) return null;
+    const formWidth = form.getBoundingClientRect().width;
+    const btnWidth = button.getBoundingClientRect().width;
+    if (formWidth > 0 && btnWidth > 0 && btnWidth < formWidth * 0.8) return null;
     return button;
   }
 
   function findComposerDialog() {
-    return findComposerDialogStrict() || (() => {
-      const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-      return dialogs.find((d) => isVisible(d) && d.querySelector('div[contenteditable="true"]')) || null;
-    })();
+    const strict = findComposerDialogStrict();
+    if (strict) return strict;
+    const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]')).filter(
+      (d) => isVisible(d) && d.querySelector('div[contenteditable="true"]') && !isBuySellDialog(d)
+    );
+    const postDialogs = dialogs.filter(isPostComposer);
+    if (postDialogs.length) return postDialogs[postDialogs.length - 1];
+    return dialogs.length === 1 ? dialogs[0] : null;
   }
 
   /* Only the post composer dialog is valid. */
@@ -544,7 +694,14 @@
     "موافقة المسؤول"
   ];
 
-  function detectPending() {
+  function detectPending({ allowFullBody = true } = {}) {
+    const alerts = document.querySelectorAll('div[role="alert"], div[role="status"]');
+    for (const node of alerts) {
+      if (!isVisible(node)) continue;
+      const text = String(node.innerText || "").toLowerCase();
+      if (PENDING_PHRASES.some((phrase) => text.includes(phrase))) return true;
+    }
+    if (!allowFullBody) return false;
     const text = String(document.body ? document.body.innerText : "").slice(0, 200000).toLowerCase();
     return PENDING_PHRASES.some((phrase) => text.includes(phrase));
   }
@@ -556,18 +713,199 @@
     return APPROVAL_HINTS.some((phrase) => text.includes(phrase));
   }
 
+  const PAUSED_OR_ARCHIVED_PHRASES = [
+    "this group is paused",
+    "group is paused",
+    "this group has been paused",
+    "posting is paused",
+    "posting has been paused",
+    "admins have paused",
+    "paused by an admin",
+    "este grupo está en pausa",
+    "este grupo esta en pausa",
+    "grupo en pausa",
+    "las publicaciones están en pausa",
+    "publicaciones en pausa",
+    "este grupo ha sido pausado",
+    "el administrador pausó este grupo",
+    "este grupo está congelado",
+    "grupo congelado",
+    "ce groupe est en pause",
+    "groupe en pause",
+    "les publications sont en pause",
+    "este grupo está pausado",
+    "grupo pausado",
+    "هذه المجموعة متوقفة مؤقتًا",
+    "المجموعة متوقفة مؤقتًا",
+    "تم إيقاف النشر مؤقتًا",
+    "this group is archived",
+    "this group has been archived",
+    "archived group",
+    "este grupo está archivado",
+    "este grupo esta archivado",
+    "este grupo fue archivado",
+    "grupo archivado",
+    "ce groupe est archivé",
+    "groupe archivé",
+    "este grupo foi arquivado",
+    "grupo arquivado",
+    "هذه المجموعة مؤرشفة",
+    "تمت أرشفة هذه المجموعة",
+    "this group is no longer available",
+    "este grupo ya no está disponible",
+    "group has been disabled"
+  ];
+
+  function getGroupNonFeedText() {
+    const main = document.querySelector('[role="main"]');
+    if (!main) return "";
+    const chunks = [];
+    const walk = (el) => {
+      if (!el || el.nodeType !== 1) return;
+      const role = el.getAttribute("role");
+      if (role === "feed" || role === "article") return;
+      if (el.getAttribute("aria-hidden") === "true" || el.hidden) return;
+      if (!el.children.length) {
+        const txt = String(el.textContent || "").trim();
+        if (txt) chunks.push(txt);
+        return;
+      }
+      for (const child of el.children) walk(child);
+    };
+    walk(main);
+    return chunks.join(" ").replace(/\s+/g, " ").slice(0, 8000).toLowerCase();
+  }
+
+  function detectPausedOrArchived(nonFeedText) {
+    const text = nonFeedText || getGroupNonFeedText();
+    if (!text) return null;
+    const hit = PAUSED_OR_ARCHIVED_PHRASES.find((phrase) => text.includes(phrase));
+    if (!hit) return null;
+    const archived = /archiv|مؤرشفة/.test(hit);
+    return archived
+      ? "Este grupo está archivado y ya no admite publicaciones."
+      : "Este grupo está en pausa / congelado y no admite publicaciones.";
+  }
+
+  function detectBuySellOnly(nonFeedText) {
+    const scopes = Array.from(
+      document.querySelectorAll('div[data-pagelet="GroupInlineComposer"], div[data-pagelet*="Composer"]')
+    );
+    const main = document.querySelector('[role="main"]');
+    if (!scopes.length && main) scopes.push(main);
+
+    for (const scope of scopes) {
+      const buttons = scope.querySelectorAll('[role="button"], button');
+      for (const btn of buttons) {
+        if (btn.closest('div[role="feed"], div[role="article"]')) continue;
+        if (!isVisible(btn)) continue;
+        if (isSellLabel(labelOf(btn))) {
+          return "Grupo en modo ventas / compraventa («Vender algo»), sin publicación normal.";
+        }
+      }
+    }
+
+    const text = nonFeedText || getGroupNonFeedText();
+    if (
+      text &&
+      /\b(buy and sell|compraventa|art[ií]culos en venta|venta de art[ií]culos|achat et vente|بيع وشراء)\b/.test(text) &&
+      /\b(sell something|vender algo|item for sale|art[ií]culo en venta|vendre quelque chose)\b/.test(text)
+    ) {
+      return "Grupo en modo ventas / compraventa, sin publicación estándar.";
+    }
+    return null;
+  }
+
+  function detectGroupBlockedReason() {
+    const main = document.querySelector('[role="main"]');
+    if (!main) return null;
+    const nonFeedText = getGroupNonFeedText();
+
+    const paused = detectPausedOrArchived(nonFeedText);
+    if (paused) return { code: "group_paused", skip: true, error: paused };
+
+    if (
+      /only admins can post|solo los administradores pueden publicar|seuls les administrateurs peuvent publier|يمكن للمسؤولين فقط النشر/.test(
+        nonFeedText
+      )
+    ) {
+      return {
+        code: "cannot_post",
+        skip: true,
+        error: "Solo los administradores pueden publicar en este grupo."
+      };
+    }
+
+    const joinBtn = Array.from(main.querySelectorAll('[role="button"], button')).find((el) => {
+      if (el.closest('div[role="feed"], div[role="article"]')) return false;
+      if (!isVisible(el)) return false;
+      const lbl = labelOf(el);
+      return lbl === "join group" || lbl === "unirse al grupo" || lbl === "rejoindre le groupe" || lbl === "انضمام إلى المجموعة";
+    });
+    if (joinBtn) {
+      return {
+        code: "cannot_post",
+        skip: true,
+        error: "No eres miembro de este grupo (aparece el botón Unirse al grupo)."
+      };
+    }
+
+    const buySell = detectBuySellOnly(nonFeedText);
+    if (buySell) return { code: "buy_sell_only", skip: true, error: buySell };
+
+    return null;
+  }
+
+  function snapshotFeedPostLinks() {
+    const feed = document.querySelector('div[role="feed"]') || document.querySelector('[role="main"]');
+    const links = new Set();
+    if (!feed) return links;
+    feed.querySelectorAll('a[href*="/posts/"], a[href*="/permalink/"]').forEach((a) => {
+      try {
+        const u = new URL(a.href, location.origin);
+        links.add(u.origin + u.pathname);
+      } catch {
+        /* ignore */
+      }
+    });
+    return links;
+  }
+
+  function findNewPostUrl(beforeLinks) {
+    const feed = document.querySelector('div[role="feed"]') || document.querySelector('[role="main"]');
+    if (!feed) return "";
+    for (const a of feed.querySelectorAll('a[href*="/posts/"], a[href*="/permalink/"]')) {
+      try {
+        const u = new URL(a.href, location.origin);
+        const clean = u.origin + u.pathname;
+        if (!beforeLinks.has(clean)) return clean;
+      } catch {
+        /* ignore */
+      }
+    }
+    return "";
+  }
+
   async function clickAndVerify(button) {
     let target = button;
     const composerDialog = findComposerDialog();
     const hadDialog = Boolean(composerDialog);
+    const pendingBefore = detectPending({ allowFullBody: true });
+    let sawSubmitting = false;
 
     for (const mode of ["react", "dom", "pointer"]) {
       if (!findComposerDialog()) return { ok: true };
-      trace("clic Publicar modo=" + mode);
-      await clickOnce(target, mode);
-      await sleep(200);
+      /* If a previous click already put the dialog in submitting state, wait
+         instead of clicking Publicar again and risking a duplicate post. */
+      if (sawSubmitting) {
+        trace("envío en curso; esperando cierre sin re-clic");
+      } else {
+        trace("clic Publicar modo=" + mode);
+        await clickOnce(target, mode);
+        await sleep(250);
+      }
 
-      for (let step = 0; step < 12; step += 1) {
+      for (let step = 0; step < 14; step += 1) {
         await sleep(500);
 
         const warning = detectWarning();
@@ -581,11 +919,19 @@
             composerDialog.getAttribute("aria-hidden") !== "true";
           if (!alive) {
             trace("diálogo cerrado tras clic");
-            return { ok: true };
+            const pendingAfter = detectPending({ allowFullBody: !pendingBefore });
+            return { ok: true, pending: pendingAfter };
+          }
+          const btnNow = findSubmitButton();
+          if (
+            (btnNow && isDisabled(btnNow)) ||
+            Boolean(pickVisible('div[role="progressbar"]', composerDialog))
+          ) {
+            sawSubmitting = true;
           }
         }
 
-        if (detectPending()) return { ok: true, pending: true };
+        if (detectPending({ allowFullBody: !pendingBefore })) return { ok: true, pending: true };
 
         if (!hadDialog) {
           const editor = pickVisible('div[contenteditable="true"][role="textbox"]');
@@ -632,14 +978,23 @@
     await sleep(800);
   }
 
+  const MIME_EXT = {
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg"
+  };
+
   async function fileFromDataUrl(dataUrl) {
     const [meta, b64] = String(dataUrl).split(",");
-    const mime = (/data:(.*?)(;base64)?$/.exec(meta || ""))?.[1] || "image/jpeg";
+    const mime = ((/data:(.*?)(;base64)?$/.exec(meta || ""))?.[1] || "image/jpeg").toLowerCase();
+    const ext = MIME_EXT[mime] || "jpg";
     const bin = atob(b64 || "");
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
     const blob = new Blob([bytes], { type: mime || "image/jpeg" });
-    return new File([blob], "imagen.jpg", { type: mime || "image/jpeg" });
+    return new File([blob], "imagen." + ext, { type: mime || "image/jpeg" });
   }
 
   function findComposerMediaInput(dialog) {
@@ -728,9 +1083,19 @@
       await simulatePresence(1.8);
     }
 
-    const trigger = await waitFor(findComposerTrigger, 20000);
+    let trigger = await waitFor(findComposerTrigger, 5000);
+    if (!trigger) {
+      const blocked = detectGroupBlockedReason();
+      if (blocked) {
+        trace("grupo omitido=" + blocked.code + " · " + blocked.error);
+        return { ok: false, ...blocked };
+      }
+      trigger = await waitFor(findComposerTrigger, 15000);
+    }
     trace("composer trigger=" + (trigger ? (labelOf(trigger) || "encontrado") : "NO"));
     if (!trigger) {
+      const blocked = detectGroupBlockedReason();
+      if (blocked) return { ok: false, ...blocked };
       return {
         ok: false,
         code: "no_composer",
@@ -741,12 +1106,37 @@
     const composerOpened = await openComposer(trigger);
     trace("composer abierto=" + composerOpened);
     if (!composerOpened) {
+      const buySellDialog = Array.from(document.querySelectorAll('div[role="dialog"]')).find(
+        (d) => isVisible(d) && isBuySellDialog(d)
+      );
+      if (buySellDialog) {
+        closeOpenDialog(buySellDialog);
+        return {
+          ok: false,
+          skip: true,
+          code: "buy_sell_only",
+          error: "El grupo abrió un formulario de compraventa (modo ventas) en lugar de publicación normal."
+        };
+      }
       return { ok: false, code: "no_editor", error: "No se abrió el cuadro de publicación del grupo." };
     }
 
     /* Facebook renders the composer dialog asynchronously. Give it time before
        polling, then wait up to 15 s for the editor to appear. */
     await sleep(1200);
+    const buySellDialog = Array.from(document.querySelectorAll('div[role="dialog"]')).find(
+      (d) => isVisible(d) && isBuySellDialog(d)
+    );
+    if (buySellDialog) {
+      closeOpenDialog(buySellDialog);
+      return {
+        ok: false,
+        skip: true,
+        code: "buy_sell_only",
+        error: "El grupo abrió un formulario de compraventa (modo ventas) en lugar de publicación normal."
+      };
+    }
+
     const editor = await waitFor(findEditor, 15000);
     trace("editor=" + (editor ? "encontrado" : "NO"));
     if (!editor) {
@@ -797,9 +1187,16 @@
     }
 
     const preApproval = detectApprovalRequirement(findComposerDialog());
+    const beforeLinks = snapshotFeedPostLinks();
     const result = await clickAndVerify(ready.button);
     trace("clickAndVerify=" + JSON.stringify(result));
     if (!result.ok) return result;
+
+    let postUrl = "";
+    if (!result.pending) {
+      await sleep(900);
+      postUrl = findNewPostUrl(beforeLinks);
+    }
 
     trace("POST OK");
 
@@ -808,7 +1205,7 @@
       pending: Boolean(result.pending),
       requiresApproval: Boolean(result.pending || preApproval),
       image: images.length > 0,
-      url: location.origin + location.pathname
+      url: postUrl || (location.origin + location.pathname)
     };
   }
 

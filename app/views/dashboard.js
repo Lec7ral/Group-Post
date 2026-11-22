@@ -73,7 +73,7 @@ export async function mount(root) {
   const renderRun = () => {
     const run = state.run || {};
     const total = Array.isArray(run.queue) ? run.queue.length : 0;
-    const done = (run.okCount || 0) + (run.failCount || 0);
+    const done = (run.okCount || 0) + (run.failCount || 0) + (run.skipCount || 0);
     const active = ["running", "paused", "stopping"].includes(run.status);
 
     const statusLabel = {
@@ -112,6 +112,7 @@ export async function mount(root) {
       '<div class="progress"><div class="progress__fill" style="width:' + pct + '%"></div></div>' +
       '<div class="runpanel__row"><span class="muted">' + escapeHtml(next) + "</span><span>" +
       '<span class="badge badge--posted">' + (run.okCount || 0) + " ok</span> " +
+      ((run.skipCount || 0) ? '<span class="badge badge--skipped">' + run.skipCount + " omitidos</span> " : "") +
       '<span class="badge badge--failed">' + (run.failCount || 0) + " fallidos</span>" +
       "</span></div>" +
       (run.pauseReason === "daily-limit"

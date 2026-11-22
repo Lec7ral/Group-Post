@@ -30,8 +30,9 @@ const describeUiFailure = (result) => {
 export async function publish({ group, message, settings = {}, options = {} }) {
   const mode = String(settings.transport || "auto");
 
+  const hasImages = Boolean(options.image) || (Array.isArray(options.images) && options.images.some(Boolean));
+
   if (mode === "ajax" || mode === "graphql") {
-    const hasImages = Boolean(options.image) || (Array.isArray(options.images) && options.images.some(Boolean));
     if (hasImages) {
       return { ok: false, kind: "config", error: "Las fotos requieren el transporte «Navegador real» o «Automático».", via: mode };
     }
@@ -72,6 +73,7 @@ export async function publish({ group, message, settings = {}, options = {} }) {
         via: "ui",
         kind: result.code === "bad_group_page" ? "config" : "ui",
         code: result.code || "ui_failed",
+        skip: Boolean(result.skip),
         error: describeUiFailure(result),
         debug: result.debug || []
       };
@@ -87,7 +89,16 @@ export async function publish({ group, message, settings = {}, options = {} }) {
 
   const uiResult = await attemptUi();
   if (uiResult.ok) return uiResult;
-  if (mode === "ui" || uiResult.kind === "checkpoint" || uiResult.kind === "config") return uiResult;
+  if (
+    mode === "ui" ||
+    hasImages ||
+    uiResult.kind === "checkpoint" ||
+    uiResult.kind === "config" ||
+    uiResult.skip === true ||
+    ["cannot_post", "group_paused", "buy_sell_only", "submit_disabled", "dialog_open", "no_image"].includes(uiResult.code)
+  ) {
+    return uiResult;
+  }
 
   /* auto: the page could not do it, try the API before giving up. */
   const apiResult = await publishToGroup({ group, message, settings });

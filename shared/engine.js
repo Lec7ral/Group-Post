@@ -29,9 +29,17 @@ const MAX_CONSECUTIVE_FAILS = 5;
 
 let active = false;
 
+const SKIP_CODES = new Set(["group_paused", "buy_sell_only", "cannot_post"]);
+
+const isSkippable = (result) => Boolean(result && (result.skip === true || SKIP_CODES.has(result.code)));
+
 const isRetryable = (result) => {
   if (!result || result.ok) return false;
+  if (isSkippable(result)) return false;
   if (["auth", "checkpoint", "resolve", "config"].includes(result.kind)) return false;
+  if (["submit_disabled", "no_composer", "no_image", "empty", "bad_group_page"].includes(result.code)) {
+    return false;
+  }
   return true;
 };
 
@@ -145,6 +153,7 @@ let imageCache = new Map();
 export async function resolveImageDataUrl(url) {
   const value = String(url || "").trim();
   if (!value) return "";
+  if (value.startsWith("data:")) return value;
   if (imageCache.has(value)) return imageCache.get(value);
   let dataUrl = "";
   try {
@@ -320,9 +329,10 @@ async function loop(runId) {
       result = await doPost(group, message, settings, snapshot, runImages);
     }
 
+    const skippedThis = !result.ok && isSkippable(result);
     const runAfter = await readControl(runId);
     if (runAfter.status === "stopping") {
-      const stopStatus = result.ok ? (result.pending ? "pending" : "posted") : "failed";
+      const stopStatus = result.ok ? (result.pending ? "pending" : "posted") : skippedThis ? "skipped" : "failed";
       await logAndSave({
         campaignId: run.campaignId,
         campaignName: run.campaignName,
@@ -332,7 +342,7 @@ async function loop(runId) {
         postUrl: result.postUrl || "",
         message: result.ok
           ? (result.pending ? "Enviado (pendiente de aprobación) antes de detener." : "Publicado antes de la orden de parada.")
-          : result.error || "Falló"
+          : result.error || (skippedThis ? "Grupo omitido" : "Falló")
       });
       await recordGroupOutcome({
         groupId: group.id,
@@ -369,6 +379,25 @@ async function loop(runId) {
       await patchRun(runId, {
         okCount: runAfter.okCount + 1,
         consecutiveFails: 0,
+        lastError: ""
+      });
+    } else if (skippedThis) {
+      await logAndSave({
+        campaignId: run.campaignId,
+        campaignName: run.campaignName,
+        groupId: group.id,
+        groupName: group.name,
+        status: "skipped",
+        message: "Omitido: " + (result.error || "el grupo no admite publicaciones normales."),
+        raw: Array.isArray(result.debug) ? result.debug.join("\n") : ""
+      });
+      await recordGroupOutcome({
+        groupId: group.id,
+        status: "skipped",
+        error: result.error || "Grupo omitido"
+      });
+      await patchRun(runId, {
+        skipCount: (runAfter.skipCount || 0) + 1,
         lastError: ""
       });
     } else {
@@ -427,7 +456,7 @@ async function loop(runId) {
     }
 
     const safetyEvery = Math.max(0, Number(settings.safetyEvery) || 0);
-    if (safetyEvery > 0 && run.okCount > 0 && run.okCount % safetyEvery === 0 && index < total - 1) {
+    if (result.ok && safetyEvery > 0 && run.okCount > 0 && run.okCount % safetyEvery === 0 && index < total - 1) {
       const breakMs = Math.max(1, Number(settings.safetySec) || 0) * 1000;
       await patchRun(runId, { breakUntil: Date.now() + breakMs });
       await logAndSave({
@@ -447,7 +476,7 @@ async function loop(runId) {
     if (index < total - 1) {
       const min = Math.max(1, Number(snapshot.minDelaySec) || Number(settings.minDelaySec) || 60);
       const max = Math.max(min, Number(snapshot.maxDelaySec) || Number(settings.maxDelaySec) || min);
-      const delayMs = jitterInt(min, max) * 1000;
+      const delayMs = skippedThis ? jitterInt(3, 6) * 1000 : jitterInt(min, max) * 1000;
       await patchRun(runId, { nextAt: Date.now() + delayMs });
       const waited = await waitDelay(runId, delayMs);
       if (waited === "stop") {
@@ -460,7 +489,8 @@ async function loop(runId) {
   }
 
   run = await readControl(runId);
-  await finalize(runId, "done", `Terminado. ${run.okCount} publicados, ${run.failCount} fallidos.`);
+  const skipNote = run.skipCount ? `, ${run.skipCount} omitidos` : "";
+  await finalize(runId, "done", `Terminado. ${run.okCount} publicados${skipNote}, ${run.failCount} fallidos.`);
 }
 
 /* ---------------- public API used by the offscreen message router ---------------- */

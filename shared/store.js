@@ -307,6 +307,7 @@ export const recordGroupOutcome = async ({
     posted: 0,
     pending: 0,
     failed: 0,
+    skipped: 0,
     lastPostAt: 0,
     lastStatus: "",
     lastPostUrl: "",
@@ -318,10 +319,11 @@ export const recordGroupOutcome = async ({
     posted: prev.posted + (status === "posted" ? 1 : 0),
     pending: prev.pending + (status === "pending" ? 1 : 0),
     failed: prev.failed + (status === "failed" ? 1 : 0),
+    skipped: (prev.skipped || 0) + (status === "skipped" ? 1 : 0),
     lastPostAt: ts,
     lastStatus: status,
     lastPostUrl: postUrl || prev.lastPostUrl || "",
-    lastError: status === "failed" ? String(error || "") : "",
+    lastError: status === "failed" || status === "skipped" ? String(error || "") : "",
     requiresApproval: Boolean(prev.requiresApproval || requiresApproval || status === "pending")
   };
   await saveGroupStats({ ...stats, [id]: next });
@@ -346,12 +348,13 @@ export const buildGroupMetrics = (groupStats = {}, log = []) => {
   for (const item of log || []) {
     const id = item && item.groupId ? String(item.groupId) : "";
     if (!id) continue;
-    if (!["posted", "pending", "failed"].includes(item.status)) continue;
+    if (!["posted", "pending", "failed", "skipped"].includes(item.status)) continue;
     if (groupStats && groupStats[id]) continue;
     const cur = result[id] || {
       posted: 0,
       pending: 0,
       failed: 0,
+      skipped: 0,
       lastPostAt: 0,
       lastStatus: "",
       lastPostUrl: "",
@@ -364,11 +367,12 @@ export const buildGroupMetrics = (groupStats = {}, log = []) => {
       cur.requiresApproval = true;
     }
     if (item.status === "failed") cur.failed += 1;
+    if (item.status === "skipped") cur.skipped += 1;
     if ((item.ts || 0) >= cur.lastPostAt) {
       cur.lastPostAt = item.ts || 0;
       cur.lastStatus = item.status;
       if (item.postUrl) cur.lastPostUrl = item.postUrl;
-      if (item.status === "failed") cur.lastError = item.message || "";
+      if (item.status === "failed" || item.status === "skipped") cur.lastError = item.message || "";
     }
     if (/pendiente de aprobación/i.test(String(item.message || ""))) {
       cur.requiresApproval = true;

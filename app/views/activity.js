@@ -7,6 +7,7 @@ const FILTERS = [
   ["posted", "Publicados"],
   ["pending", "Pendientes"],
   ["failed", "Fallidos"],
+  ["skipped", "Omitidos"],
   ["break", "Descansos"],
   ["info", "Info"]
 ];
@@ -56,8 +57,9 @@ export async function mount(root) {
   const render = () => {
     const entries = filtered();
     const posted = entries.filter((entry) => entry.status === "posted").length;
+    const skipped = entries.filter((entry) => entry.status === "skipped").length;
     const failed = entries.filter((entry) => entry.status === "failed").length;
-    summary.textContent = entries.length + " entradas · " + posted + " publicados · " + failed + " fallidos";
+    summary.textContent = entries.length + " entradas · " + posted + " publicados · " + (skipped ? skipped + " omitidos · " : "") + failed + " fallidos";
 
     if (!entries.length) {
       tableHost.innerHTML = '<div class="empty">Aún no hay nada aquí. Lanza una campaña y cada publicación, fallo y descanso aparecerá en este registro.</div>';

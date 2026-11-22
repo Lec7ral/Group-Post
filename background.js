@@ -119,19 +119,25 @@ function pageIsQuiet() {
 async function waitForPageQuiet(tabId, timeoutMs = 20000) {
   const started = Date.now();
   let quietSince = 0;
-  let lastHtml = "";
+  let lastSize = -1;
   while (Date.now() - started < timeoutMs) {
     try {
       const [result] = await chrome.scripting.executeScript({ target: { tabId }, func: pageIsQuiet });
-      const html = await chrome.scripting.executeScript({ target: { tabId }, func: () => document.body ? document.body.innerHTML.length : 0 });
+      const html = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const main = document.querySelector('[role="main"]');
+          return main ? main.innerHTML.length : (document.body ? document.body.innerHTML.length : 0);
+        }
+      });
       const size = (html && html.result) || 0;
-      if (result && result.result && size === lastHtml) {
+      if (result && result.result && size === lastSize) {
         if (!quietSince) quietSince = Date.now();
-        else if (Date.now() - quietSince >= 1500) return true;
+        else if (Date.now() - quietSince >= 1000) return true;
       } else {
         quietSince = 0;
       }
-      lastHtml = size;
+      lastSize = size;
     } catch {
       /* retry */
     }
@@ -297,8 +303,9 @@ function samePage(a, b) {
   try {
     const left = new URL(a);
     const right = new URL(b);
+    const normHost = (host) => host.replace(/^(?:www|web|m|mbasic)\./i, "");
     const strip = (path) => path.replace(/\/+$/, "");
-    return left.origin === right.origin && strip(left.pathname) === strip(right.pathname);
+    return normHost(left.hostname) === normHost(right.hostname) && strip(left.pathname) === strip(right.pathname);
   } catch {
     return a === b;
   }
@@ -310,7 +317,7 @@ async function findFacebookTab(url) {
   try {
     const tabs = await chrome.tabs.query({});
     const fb = tabs.filter(
-      (tab) => tab.url && /^https?:\/\/(?:www\.|mbasic\.)?facebook\.com\//i.test(tab.url)
+      (tab) => tab.url && /^https?:\/\/(?:www\.|web\.|mbasic\.|m\.)?facebook\.com\//i.test(tab.url)
     );
     if (!fb.length) return null;
     const wanted = (() => {
@@ -334,8 +341,13 @@ async function findFacebookTab(url) {
   }
 }
 
-async function createTabWorker(url, mode = "tab") {
-  const tab = await chrome.tabs.create({ url, active: true });
+async function createTabWorker(url, mode = "tab", active = false) {
+  const tab = await chrome.tabs.create({ url, active });
+  try {
+    await chrome.tabs.update(tab.id, { autoDiscardable: false });
+  } catch {
+    /* ignore */
+  }
   const state = { windowId: tab.windowId, tabId: tab.id, mode };
   await writeWorker(state);
   return state;
@@ -344,6 +356,7 @@ async function createTabWorker(url, mode = "tab") {
 async function ensureWorker(url, settings) {
   const newTab = settings.workTarget === "newtab";
   const wantedMode = newTab ? "newtab" : "tab";
+  const shouldFocus = settings.focusWorker === true;
   let worker = await getLiveWorker();
 
   if (worker && worker.mode !== wantedMode) {
@@ -359,13 +372,18 @@ async function ensureWorker(url, settings) {
       worker = state;
     }
   }
-  if (!worker) worker = await createTabWorker(url, wantedMode);
+  if (!worker) worker = await createTabWorker(url, wantedMode, shouldFocus);
 
   let live = await chrome.tabs.get(worker.tabId).catch(() => null);
   if (!live) {
     await dropWorker();
-    worker = await createTabWorker(url, wantedMode);
+    worker = await createTabWorker(url, wantedMode, shouldFocus);
     live = await chrome.tabs.get(worker.tabId).catch(() => null);
+  }
+  try {
+    await chrome.tabs.update(worker.tabId, { autoDiscardable: false });
+  } catch {
+    /* ignore */
   }
   if (live && !samePage(live.url || "", url)) {
     await chrome.tabs.update(worker.tabId, { url });
@@ -374,7 +392,7 @@ async function ensureWorker(url, settings) {
     await sleep(1800);
   }
 
-  if (settings.focusWorker === true) {
+  if (shouldFocus) {
     try {
       await chrome.tabs.update(worker.tabId, { active: true });
       await chrome.windows.update(worker.windowId, { focused: true });
@@ -549,7 +567,7 @@ async function uiScanGroups() {
 function paintBadge(run) {
   const status = (run && run.status) || "idle";
   const total = Array.isArray(run && run.queue) ? run.queue.length : 0;
-  const done = ((run && run.okCount) || 0) + ((run && run.failCount) || 0);
+  const done = ((run && run.okCount) || 0) + ((run && run.failCount) || 0) + ((run && run.skipCount) || 0);
 
   let text = "";
   let color = "#5b8cff";
