@@ -130,10 +130,19 @@
       if (!node || node === document.body) return "";
       return String(node.textContent || node.innerText || "");
     };
+    const beforeText = normalize(readValue(editor));
     const needle = normalize(text).slice(0, 14);
-    const hasText = () =>
-      Boolean(needle) &&
-      (normalize(readValue(editor)).includes(needle) || normalize(readValue(document.activeElement)).includes(needle));
+    const submitReady = () => {
+      const btn = findSubmitButton();
+      return Boolean(btn && !isDisabled(btn));
+    };
+    const hasText = () => {
+      const curEditor = normalize(readValue(editor));
+      const curActive = normalize(readValue(document.activeElement));
+      if (needle && (curEditor.includes(needle) || curActive.includes(needle))) return true;
+      if (curEditor && curEditor !== beforeText) return true;
+      return submitReady();
+    };
     const waitInserted = async (ms) => {
       for (let elapsed = 0; elapsed < ms; elapsed += 60) {
         if (hasText()) return true;
@@ -142,7 +151,9 @@
       return hasText();
     };
 
-    if (hasText()) return true;
+    if (needle && (normalize(readValue(editor)).includes(needle) || normalize(readValue(document.activeElement)).includes(needle))) {
+      return true;
+    }
 
     editor.focus();
     placeCaretInEditor(editor);
@@ -803,7 +814,7 @@
     for (const scope of scopes) {
       const buttons = scope.querySelectorAll('[role="button"], button');
       for (const btn of buttons) {
-        if (btn.closest('div[role="feed"], div[role="article"]')) continue;
+        if (btn.closest('div[role="feed"], div[role="article"], [role="navigation"], [role="tablist"]')) continue;
         if (!isVisible(btn)) continue;
         if (isSellLabel(labelOf(btn))) {
           return "Grupo en modo ventas / compraventa («Vender algo»), sin publicación normal.";

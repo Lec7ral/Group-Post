@@ -345,7 +345,6 @@ export async function mount(root) {
     "setAiTone",
     "setAiStyle",
     "setAiLanguage",
-    "setAiBase",
     "setAiModel",
     "setAiKey",
     "setDoc",

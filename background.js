@@ -411,7 +411,7 @@ async function sendUi(tabId, task, payload = {}) {
 }
 
 async function ensureContentScript(tabId) {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       const pong = await sendUi(tabId, "ping");
       if (pong && pong.ok) return true;
@@ -534,7 +534,7 @@ async function fetchJoinedGroupsGraphql(tabId) {
 
 async function uiScanGroups() {
   const run = await getRun();
-  if (run.status === "running" || run.status === "paused") {
+  if (["running", "paused", "stopping"].includes(run.status)) {
     return { ok: false, error: "Hay una campaña activa. Espera a que termine para sincronizar grupos." };
   }
   const settings = await getSettings();

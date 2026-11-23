@@ -80,7 +80,10 @@ export async function mount(root, param) {
     '<div class="field"><label class="label" for="edMessage">Mensaje</label><textarea class="textarea" id="edMessage" placeholder="Escribe el post que quieres publicar en cada grupo…"></textarea>' +
     '<div class="hint">Se respetan los saltos de línea. Los enlaces se publican como texto normal.</div>' +
     '<div class="field"><label class="label" for="edImage">Imagen (URL o archivo, opcional)</label><input class="input" id="edImage" placeholder="https://…/foto.jpg" autocomplete="off"></div>' +
-    '<div class="field"><label class="label" for="edImageFile">…o adjuntar archivos locales (se permite más de una foto)</label><input class="input" id="edImageFile" type="file" accept="image/*" multiple></div>' +
+    '<div class="field"><label class="label" for="edImageFile">…o adjuntar archivos locales (se permite más de una foto)</label>' +
+    '<div class="row"><input class="input" id="edImageFile" type="file" accept="image/*" multiple style="flex:1">' +
+    '<button class="btn btn--sm btn--ghost" type="button" id="edClearImage" hidden>Quitar foto(s)</button></div>' +
+    '<div class="hint" id="edImageInfo"></div></div>' +
     '<div class="row" id="edVars"></div>' +
     '<div class="inset small" id="edSpinInfo">Spintax: escribe <span class="mono">{Hola|Buenas|Qué tal}</span> y cada grupo recibe una variante distinta. Se puede anidar: <span class="mono">{Hola|{Buenas|Qué tal}}</span>. <strong id="edSpinCount">1 variante</strong></div>' +
     "</div></div>" +
@@ -145,12 +148,28 @@ export async function mount(root, param) {
   const testResult = $("#edTestResult");
   const imageInput = $("#edImage");
   const imageFile = $("#edImageFile");
+  const clearImageBtn = $("#edClearImage");
+  const imageInfo = $("#edImageInfo");
   const scheduleInput = $("#edSchedule");
+
+  const syncImageUi = () => {
+    const imgs = Array.isArray(draft.images) ? draft.images.filter(Boolean) : [];
+    const localCount = imgs.filter((v) => String(v).startsWith("data:")).length;
+    if (localCount > 0) {
+      imageInfo.textContent = localCount + " imagen(es) local(es) adjunta(s).";
+    } else if (draft.imageUrl) {
+      imageInfo.textContent = "Usando imagen desde URL.";
+    } else {
+      imageInfo.textContent = "";
+    }
+    clearImageBtn.hidden = !(imgs.length || draft.imageUrl);
+  };
 
   nameInput.value = draft.name || "";
   messageInput.value = draft.message || "";
-  imageInput.value = draft.imageUrl || "";
+  imageInput.value = draft.imageUrl && !String(draft.imageUrl).startsWith("data:") ? draft.imageUrl : "";
   if (imageFile) imageFile.value = "";
+  syncImageUi();
   minInput.value = draft.minDelaySec;
   maxInput.value = draft.maxDelaySec;
   safetyEvery.value = draft.safetyEvery;
@@ -325,13 +344,19 @@ export async function mount(root, param) {
     updatePreview();
   });
   imageInput.addEventListener("input", () => {
-    draft.imageUrl = imageInput.value;
+    const url = imageInput.value.trim();
+    draft.imageUrl = url;
+    draft.images = url ? [url] : [];
+    if (imageFile) imageFile.value = "";
+    syncImageUi();
   });
   imageFile.addEventListener("change", async () => {
     const files = Array.from(imageFile.files || []);
     if (!files.length) {
-      draft.imageUrl = "";
-      draft.images = [];
+      const url = imageInput.value.trim();
+      draft.imageUrl = url;
+      draft.images = url ? [url] : [];
+      syncImageUi();
       return;
     }
     const readFile = (file) => new Promise((resolve) => {
@@ -340,8 +365,18 @@ export async function mount(root, param) {
       reader.onerror = () => resolve("");
       reader.readAsDataURL(file);
     });
-    draft.images = await Promise.all(files.map(readFile));
+    draft.images = (await Promise.all(files.map(readFile))).filter(Boolean);
     draft.imageUrl = draft.images[0] || "";
+    imageInput.value = "";
+    syncImageUi();
+    updatePreview();
+  });
+  clearImageBtn.addEventListener("click", () => {
+    draft.imageUrl = "";
+    draft.images = [];
+    imageInput.value = "";
+    if (imageFile) imageFile.value = "";
+    syncImageUi();
     updatePreview();
   });
   minInput.addEventListener("input", () => {
@@ -453,10 +488,15 @@ export async function mount(root, param) {
   const persist = async ({ silent = false } = {}) => {
     draft.name = nameInput.value.trim() || "Campaña sin título";
     draft.message = messageInput.value;
-    draft.imageUrl = String(draft.imageUrl || imageInput.value || "").trim();
-    draft.images = Array.isArray(draft.images) && draft.images.length
-      ? draft.images
-      : draft.imageUrl ? [draft.imageUrl] : [];
+    const urlVal = imageInput.value.trim();
+    const localImages = Array.isArray(draft.images) ? draft.images.filter((v) => String(v).startsWith("data:")) : [];
+    if (localImages.length) {
+      draft.images = localImages;
+      draft.imageUrl = localImages[0];
+    } else {
+      draft.imageUrl = urlVal;
+      draft.images = urlVal ? [urlVal] : [];
+    }
     draft.groupIds = Array.from(selected);
     draft.minDelaySec = clamp(Number(draft.minDelaySec) || 60, 1, 24 * 3600);
     draft.maxDelaySec = clamp(Math.max(Number(draft.maxDelaySec) || draft.minDelaySec, draft.minDelaySec), draft.minDelaySec, 48 * 3600);

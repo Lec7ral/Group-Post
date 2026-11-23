@@ -284,10 +284,9 @@ async function loop(runId) {
         await finalize(runId, "done", "Detenido por ti.");
         return;
       }
-      /* The daily limit pauses the campaign. The loop restarts from the same
-         group when the user resumes, instead of skipping it. */
-      active = false;
-      break loop;
+      /* The daily limit pauses the campaign. On resume, re-evaluate from the
+         same group index instead of skipping it or terminating early. */
+      continue loop;
     }
 
     const group = queue[index];
@@ -455,9 +454,11 @@ async function loop(runId) {
       return;
     }
 
-    const safetyEvery = Math.max(0, Number(settings.safetyEvery) || 0);
+    const rawEvery = snapshot.safetyEvery !== undefined && snapshot.safetyEvery !== null ? snapshot.safetyEvery : settings.safetyEvery;
+    const rawSafetySec = snapshot.safetySec !== undefined && snapshot.safetySec !== null ? snapshot.safetySec : settings.safetySec;
+    const safetyEvery = Math.max(0, Number(rawEvery) || 0);
     if (result.ok && safetyEvery > 0 && run.okCount > 0 && run.okCount % safetyEvery === 0 && index < total - 1) {
-      const breakMs = Math.max(1, Number(settings.safetySec) || 0) * 1000;
+      const breakMs = Math.max(1, Number(rawSafetySec) || 0) * 1000;
       await patchRun(runId, { breakUntil: Date.now() + breakMs });
       await logAndSave({
         campaignId: run.campaignId,
@@ -542,7 +543,9 @@ export async function startRun({ campaign, groups }) {
       imageUrl: campaign.imageUrl || "",
       images: campaign.images || [],
       minDelaySec: campaign.minDelaySec,
-      maxDelaySec: campaign.maxDelaySec
+      maxDelaySec: campaign.maxDelaySec,
+      safetyEvery: campaign.safetyEvery,
+      safetySec: campaign.safetySec
     },
     queue,
     cursor: 0,
