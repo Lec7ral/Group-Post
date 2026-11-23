@@ -124,20 +124,29 @@
     }
   }
 
-  function setEditorText(editor, text) {
+  async function setEditorText(editor, text) {
+    const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
     const readValue = (node) => {
       if (!node || node === document.body) return "";
       return String(node.textContent || node.innerText || "");
     };
-    const needle = String(text).trim().slice(0, 16);
+    const needle = normalize(text).slice(0, 14);
     const hasText = () =>
       Boolean(needle) &&
-      (readValue(editor).includes(needle) || readValue(document.activeElement).includes(needle));
+      (normalize(readValue(editor)).includes(needle) || normalize(readValue(document.activeElement)).includes(needle));
+    const waitInserted = async (ms) => {
+      for (let elapsed = 0; elapsed < ms; elapsed += 60) {
+        if (hasText()) return true;
+        await sleep(60);
+      }
+      return hasText();
+    };
+
+    if (hasText()) return true;
 
     editor.focus();
     placeCaretInEditor(editor);
-    /* Avoid synthetic click() when the tab is hidden if focus+selection already holds,
-       and fall back gracefully across paste -> beforeinput -> execCommand. */
+    /* Avoid synthetic click() when the tab is hidden if focus+selection already holds. */
     if (!document.hidden) {
       try {
         editor.click();
@@ -147,62 +156,59 @@
       placeCaretInEditor(editor);
     }
 
-    /* 1) Clipboard paste into Lexical editor (works in background tabs with Selection set). */
+    /* 1) Clipboard paste into Lexical editor (text/plain only so Lexical inserts once). */
     try {
       const transfer = new DataTransfer();
       transfer.setData("text/plain", String(text));
-      transfer.setData("text/html", escapeHtml(String(text)).replace(/\r?\n/g, "<br>"));
       editor.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: transfer }));
     } catch {
       /* ignore */
     }
-
-    /* 2) Lexical beforeinput fallback (does not depend on OS focus). */
-    if (!hasText()) {
-      try {
-        placeCaretInEditor(editor);
-        editor.dispatchEvent(
-          new InputEvent("beforeinput", {
-            bubbles: true,
-            cancelable: true,
-            inputType: "insertText",
-            data: String(text)
-          })
-        );
-      } catch {
-        /* ignore */
-      }
+    if (await waitInserted(300)) {
+      trace("setEditorText via=paste editor=" + readValue(editor).slice(0, 40));
+      return true;
     }
 
-    /* 3) execCommand fallback (mostly active tabs). */
-    if (!hasText()) {
-      try {
-        placeCaretInEditor(editor);
-        document.execCommand("insertText", false, String(text));
-      } catch {
-        /* ignore */
-      }
+    /* 2) execCommand fallback (only if paste did not populate the editor). */
+    try {
+      placeCaretInEditor(editor);
+      document.execCommand("insertText", false, String(text));
+    } catch {
+      /* ignore */
+    }
+    if (await waitInserted(240)) {
+      trace("setEditorText via=execCommand editor=" + readValue(editor).slice(0, 40));
+      return true;
     }
 
-    /* 4) Last-resort DOM text assignment. */
-    if (!hasText()) {
-      try {
-        editor.textContent = String(text);
-      } catch {
-        /* ignore */
-      }
+    /* 3) Lexical beforeinput fallback (mainly for background tabs where execCommand is ignored). */
+    try {
+      placeCaretInEditor(editor);
+      editor.dispatchEvent(
+        new InputEvent("beforeinput", {
+          bubbles: true,
+          cancelable: true,
+          inputType: "insertText",
+          data: String(text)
+        })
+      );
+    } catch {
+      /* ignore */
+    }
+    if (await waitInserted(240)) {
+      trace("setEditorText via=beforeinput editor=" + readValue(editor).slice(0, 40));
+      return true;
     }
 
-    for (const node of [editor, document.activeElement]) {
-      try {
-        if (!node || node === document.body) continue;
-        node.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: String(text).slice(-1) }));
-        node.dispatchEvent(new Event("change", { bubbles: true }));
-      } catch {
-        /* ignore */
-      }
+    /* 4) Last-resort DOM text assignment + single input/change signal. */
+    try {
+      editor.textContent = String(text);
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: String(text).slice(-1) }));
+      editor.dispatchEvent(new Event("change", { bubbles: true }));
+    } catch {
+      /* ignore */
     }
-    trace("setEditorText editor=" + readValue(editor).slice(0, 40) + " active=" + readValue(document.activeElement).slice(0, 40));
+    trace("setEditorText via=dom editor=" + readValue(editor).slice(0, 40));
     return hasText();
   }
 
@@ -1159,10 +1165,13 @@
 
     /* Attaching a photo re-renders the composer: the old editor node is stale. */
     const liveEditor = images.length ? (await waitFor(findEditor, 10000)) || editor : editor;
-    let textOk = setEditorText(liveEditor, text);
-    if (!textOk && liveEditor !== editor) {
-      trace("reintentando texto en el editor original");
-      textOk = setEditorText(editor, text);
+    let textOk = await setEditorText(liveEditor, text);
+    if (!textOk && liveEditor !== editor && editor.isConnected) {
+      const btnNow = findSubmitButton();
+      if (!btnNow || isDisabled(btnNow)) {
+        trace("reintentando texto en el editor original");
+        textOk = await setEditorText(editor, text);
+      }
     }
     trace("texto escrito=" + textOk + " contenido=" + String(liveEditor.innerText || "").slice(0, 40));
     /* Lexical may keep the text in its internal state without exposing it in
